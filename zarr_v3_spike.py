@@ -12,8 +12,10 @@ def _check_store(store):
 
     assert isinstance(store, Store)
 
+    return store
 
-def _check_prefix(prefix)
+
+def _check_prefix(prefix):
     assert isinstance(prefix, str)
 
 
@@ -36,12 +38,12 @@ def create_hierarchy(store, prefix=''):
     store[meta_key] = meta_doc
 
     # instantiate a hierarchy
-    hierarchy = Hierarchy(meta=meta, store=store, prefix=prefix)
+    hierarchy = Hierarchy(store=store, prefix=prefix)
 
     return hierarchy
 
 
-def open_hierarchy(store, prefix=''):
+def get_hierarchy(store, prefix=''):
 
     # sanity checks
     store = _check_store(store)
@@ -71,7 +73,7 @@ def open_hierarchy(store, prefix=''):
             raise NotImplementedError
 
     # instantiate hierarchy
-    hierarchy = Hierarchy(meta=meta, store=store, prefix=prefix)
+    hierarchy = Hierarchy(store=store, prefix=prefix)
 
     return hierarchy
 
@@ -130,8 +132,7 @@ def _get_codec_metadata(codec):
 
 class Hierarchy:
 
-    def __init__(self, meta, store, prefix):
-        self.meta = meta
+    def __init__(self, store, prefix):
         self.store = store
         self.prefix = prefix
 
@@ -149,7 +150,7 @@ class Hierarchy:
 
         # serialise and store metadata document
         meta_doc = json.dumps(meta)
-        if path == '/'
+        if path == '/':
             # special case root path
             meta_key_suffix = 'root.group'
         else:
@@ -195,7 +196,7 @@ class Hierarchy:
 
         # serialise and store metadata document
         meta_doc = json.dumps(meta)
-        if path == '/'
+        if path == '/':
             # special case root path
             meta_key_suffix = 'root.array'
         else:
@@ -212,17 +213,33 @@ class Hierarchy:
 
     def get_array(self, path):
         _check_path(path)
-        # TODO
+
+        # TODO retrieve and parse array metadata document
+
+        # TODO decode and check metadata
+
+        # TODO instantiate array
+
         pass
 
     def get_explicit_group(self, path):
         _check_path(path)
-        # TODO
+
+        # TODO retrieve and parse group metadata document
+
+        # TODO check metadata
+
+        # TODO instantiate explicit group
+
         pass
 
     def get_implicit_group(self, path):
         _check_path(path)
-        # TODO
+
+        # TODO attempt to list directory
+
+        # TODO instantiate implicit group
+
         pass
 
     def __getitem__(self, path):
@@ -280,12 +297,29 @@ class Group:
         # pass through to owner
         _check_path(path)
         return owner.create_array(self.path + path, **kwargs)
+    
+    def get_array(self, path):
+        # pass through to owner
+        _check_path(path)
+        return owner.get_array(self.path + path)
+
+    def get_explicit_group(self, path):
+        # pass through to owner
+        _check_path(path)
+        return owner.get_explicit_group(self.path + path)
+
+    def get_implicit_group(self, path):
+        # pass through to owner
+        _check_path(path)
+        return owner.get_implicit_group(self.path + path)
 
 
 class ExplicitGroup(Group):
 
+    # TODO persist changes to attrs
+
     def __init__(self, store, prefix, path, owner, attrs):
-        super(store=store, prefix=prefix, path=path, owner=owner)
+        super().__init__(store=store, prefix=prefix, path=path, owner=owner)
         self.attrs = attrs
 
     def __repr__(self):
@@ -296,7 +330,7 @@ class ExplicitGroup(Group):
 class ImplicitGroup(Group):
 
     def __init__(self, store, prefix, path, owner):
-        super(store=store, prefix=prefix, path=path, owner=owner)
+        super().__init__(store=store, prefix=prefix, path=path, owner=owner)
 
     def __repr__(self):
         path = self.path
@@ -304,6 +338,8 @@ class ImplicitGroup(Group):
 
 
 class Array:
+
+    # TODO persist changes to attrs
 
     def __init__(self, store, prefix, path, owner, shape, dtype, chunks,
                  compressor, attrs):
@@ -360,11 +396,12 @@ class Store:
         raise NotImplementedError
 
 
-def FSStore(Store):
+class FSStore(Store):
 
     def __init__(self, fs, base):
         if isinstance(fs, str):
             # TODO instantiate file system
+            pass
         self.fs = fs
         self.base = base
 
