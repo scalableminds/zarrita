@@ -41,7 +41,7 @@ Access a previously created hierarchy:
 
 Create an array:
 
-```
+```python
 >>> from numcodecs import GZip
 >>> compressor = GZip(level=1)
 >>> attrs = {'question': 'life', 'answer': 42}
@@ -104,7 +104,7 @@ test.zr3
 
 Create a group:
 
-```
+```python
 >>> attrs = {'heart': 'gold', 'improbability': 'infinite'}
 >>> g = h.create_group('/tricia/mcmillan', attrs=attrs)
 >>> g
@@ -137,7 +137,7 @@ test.zr3
 
 Access an array:
 
-```
+```python
 >>> a = h['/arthur/dent']
 >>> a
 <Array /arthur/dent>
@@ -156,7 +156,7 @@ GZip(level=1)
 
 Access an explicit group:
 
-```
+```python
 >>> g = h['/tricia/mcmillan']
 >>> g
 <Group /tricia/mcmillan>
@@ -167,7 +167,7 @@ Access an explicit group:
 
 Access implicit groups:
 
-```
+```python
 >>> h['/']
 <Group / (implied)>
 >>> h['/arthur']
@@ -179,7 +179,7 @@ Access implicit groups:
 
 Access nodes via groups:
 
-```
+```python
 >>> root = h['/']
 >>> root
 <Group / (implied)>
@@ -198,7 +198,7 @@ Access nodes via groups:
 
 Explore the hierarchy:
 
-```
+```python
 >>> h.list_children('/')
 [{'name': 'arthur', 'type': 'implicit_group'}, {'name': 'tricia', 'type': 'implicit_group'}]
 >>> h.list_children('/tricia')
@@ -212,7 +212,7 @@ Explore the hierarchy:
 
 Alternative way to explore the hierarchy:
 
-```
+```python
 >>> root = h['/']
 >>> root
 <Group / (implied)>
@@ -229,7 +229,7 @@ Alternative way to explore the hierarchy:
 
 Read and write data into an array:
 
-```
+```python
 >>> import numpy as np
 >>> a = h['/arthur/dent']
 >>> a
