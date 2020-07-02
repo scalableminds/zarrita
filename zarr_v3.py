@@ -2,6 +2,20 @@ import json
 import fsspec
 import numpy as np
 import numcodecs
+from numcodecs.abc import Codec
+
+
+def _json_encode(o):
+    s = json.dumps(o, ensure_ascii=False, allow_nan=False, indent=4,
+                   sort_keys=False)
+    b = s.encode('utf8')
+    return b
+
+
+def _json_decode(b):
+    assert isinstance(b, bytes)
+    o = json.loads(b)
+    return o
 
 
 def _check_store(store):
@@ -15,15 +29,10 @@ def _check_store(store):
     return store
 
 
-def _check_prefix(prefix):
-    assert isinstance(prefix, str)
-
-
-def create_hierarchy(store, prefix=''):
+def create_hierarchy(store):
 
     # sanity checks
     store = _check_store(store)
-    _check_prefix(prefix)
 
     # create entry point metadata document
     meta = {
@@ -33,26 +42,25 @@ def create_hierarchy(store, prefix=''):
     }
 
     # serialise and store metadata document
-    meta_doc = json.dumps(meta)
-    meta_key = prefix + 'zarr.json'
+    meta_doc = _json_encode(meta)
+    meta_key = 'zarr.json'
     store[meta_key] = meta_doc
 
     # instantiate a hierarchy
-    hierarchy = Hierarchy(store=store, prefix=prefix)
+    hierarchy = Hierarchy(store=store)
 
     return hierarchy
 
 
-def get_hierarchy(store, prefix=''):
+def get_hierarchy(store):
 
     # sanity checks
     store = _check_store(store)
-    _check_prefix(prefix)
 
     # retrieve and parse entry point metadata document
-    meta_key = prefix + 'zarr.json'
+    meta_key = 'zarr.json'
     meta_doc = store[meta_key]
-    meta = json.loads(meta_doc)
+    meta = _json_decode(meta_doc)
 
     # check protocol version
     zarr_format = meta['zarr_format']
@@ -73,7 +81,7 @@ def get_hierarchy(store, prefix=''):
             raise NotImplementedError
 
     # instantiate hierarchy
-    hierarchy = Hierarchy(store=store, prefix=prefix)
+    hierarchy = Hierarchy(store=store)
 
     return hierarchy
 
@@ -90,7 +98,7 @@ def _check_attrs(attrs):
 
 def _check_shape(shape):
     assert isinstance(shape, tuple)
-    assert all([instance(s, int)] for s in shape)
+    assert all([isinstance(s, int) for s in shape])
 
 
 def _check_dtype(dtype):
@@ -110,7 +118,7 @@ def _check_dtype(dtype):
 
 def _check_chunks(chunks, shape):
     assert isinstance(chunks, tuple)
-    assert all([instance(c, int)] for c in chunks)
+    assert all([isinstance(c, int) for c in chunks])
     assert len(chunks) == len(shape)
 
 
@@ -120,7 +128,7 @@ def _check_compressor(compressor):
 
 def _get_codec_metadata(codec):
     # only support gzip for now
-    assert codec_id in {'gzip'}
+    assert codec.codec_id in {'gzip'}
     config = codec.get_config()
     del config['codec_id']
     meta = {
@@ -132,9 +140,8 @@ def _get_codec_metadata(codec):
 
 class Hierarchy:
 
-    def __init__(self, store, prefix):
+    def __init__(self, store):
         self.store = store
-        self.prefix = prefix
 
     def create_group(self, path, attrs=None):
 
@@ -149,17 +156,18 @@ class Hierarchy:
         }
 
         # serialise and store metadata document
-        meta_doc = json.dumps(meta)
+        meta_doc = _json_encode(meta)
         if path == '/':
             # special case root path
             meta_key_suffix = 'root.group'
         else:
             meta_key_suffix = 'root' + path + '.group'
-        meta_key = prefix + 'meta/' + meta_key_suffix
-        store[meta_key] = meta_doc
+        meta_key = 'meta/' + meta_key_suffix
+        self.store[meta_key] = meta_doc
 
         # instantiate group
-        group = ExplicitGroup(store=store, prefix=prefix, path=path, owner=self, attrs=attrs)
+        group = ExplicitGroup(store=self.store, path=path, owner=self, 
+                              attrs=attrs)
 
         return group
 
@@ -195,17 +203,17 @@ class Hierarchy:
         }
 
         # serialise and store metadata document
-        meta_doc = json.dumps(meta)
+        meta_doc = _json_encode(meta)
         if path == '/':
             # special case root path
             meta_key_suffix = 'root.array'
         else:
             meta_key_suffix = 'root' + path + '.array'
-        meta_key = prefix + 'meta/' + meta_key_suffix
-        store[meta_key] = meta_doc
+        meta_key = 'meta/' + meta_key_suffix
+        self.store[meta_key] = meta_doc
 
         # instantiate array
-        array = Array(store=store, prefix=prefix, path=path, owner=self,
+        array = Array(store=self.store, path=path, owner=self,
                       shape=shape, dtype=dtype, chunks=chunks,
                       compressor=compressor, attrs=attrs)
 
@@ -274,10 +282,9 @@ class NodeNotFoundError(Exception):
 
 class Group:
 
-    def __init__(self, store, prefix, path, owner):
+    def __init__(self, store, path, owner):
         self.store = store
         self.path = path
-        self.prefix = prefix
         self.owner = owner
 
     def list_children(self, path):
@@ -286,40 +293,40 @@ class Group:
     def __getitem__(self, path):
         # pass through to owner
         _check_path(path)
-        return owner[self.path + path]
+        return self.owner[self.path + path]
 
     def create_group(self, path, **kwargs):
         # pass through to owner
         _check_path(path)
-        return owner.create_group(self.path + path, **kwargs)
+        return self.owner.create_group(self.path + path, **kwargs)
 
     def create_array(self, path, **kwargs):
         # pass through to owner
         _check_path(path)
-        return owner.create_array(self.path + path, **kwargs)
+        return self.owner.create_array(self.path + path, **kwargs)
     
     def get_array(self, path):
         # pass through to owner
         _check_path(path)
-        return owner.get_array(self.path + path)
+        return self.owner.get_array(self.path + path)
 
     def get_explicit_group(self, path):
         # pass through to owner
         _check_path(path)
-        return owner.get_explicit_group(self.path + path)
+        return self.owner.get_explicit_group(self.path + path)
 
     def get_implicit_group(self, path):
         # pass through to owner
         _check_path(path)
-        return owner.get_implicit_group(self.path + path)
+        return self.owner.get_implicit_group(self.path + path)
 
 
 class ExplicitGroup(Group):
 
     # TODO persist changes to attrs
 
-    def __init__(self, store, prefix, path, owner, attrs):
-        super().__init__(store=store, prefix=prefix, path=path, owner=owner)
+    def __init__(self, store, path, owner, attrs):
+        super().__init__(store=store, path=path, owner=owner)
         self.attrs = attrs
 
     def __repr__(self):
@@ -329,8 +336,8 @@ class ExplicitGroup(Group):
 
 class ImplicitGroup(Group):
 
-    def __init__(self, store, prefix, path, owner):
-        super().__init__(store=store, prefix=prefix, path=path, owner=owner)
+    def __init__(self, store, path, owner):
+        super().__init__(store=store, path=path, owner=owner)
 
     def __repr__(self):
         path = self.path
@@ -341,11 +348,10 @@ class Array:
 
     # TODO persist changes to attrs
 
-    def __init__(self, store, prefix, path, owner, shape, dtype, chunks,
+    def __init__(self, store, path, owner, shape, dtype, chunks,
                  compressor, attrs):
         self.store = store
         self.path = path
-        self.prefix = prefix
         self.owner = owner
         self.shape = shape
         self.dtype = dtype
@@ -396,24 +402,29 @@ class Store:
         raise NotImplementedError
 
 
-class FSStore(Store):
+class FileSystemStore(Store):
 
-    def __init__(self, fs, base):
+    def __init__(self, fs, prefix=''):
         if isinstance(fs, str):
             # TODO instantiate file system
             pass
+        assert isinstance(prefix, str)
         self.fs = fs
-        self.base = base
+        self.prefix = prefix
 
     def __getitem__(self, key):
+        assert isinstance(key, str)
         # TODO
         pass
 
     def __setitem__(self, key, value):
+        assert isinstance(key, str)
+        assert isinstance(value, bytes)
         # TODO
         pass
 
     def __delitem__(self, key):
+        assert isinstance(key, str)
         # TODO
         pass
 
@@ -433,9 +444,11 @@ class FSStore(Store):
         return self.keys()
 
     def list_pre(self, prefix):
+        assert isinstance(prefix, str)
         # TODO
         pass
 
     def list_dir(self, prefix):
+        assert isinstance(prefix, str)
         # TODO
         pass
