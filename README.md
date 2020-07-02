@@ -4,7 +4,7 @@ This README contains a doctest suite to verify basic functionality using local f
 
 Ensure blank slate:
 
-```
+```python
 >>> import shutil
 >>> shutil.rmtree('test.zr3', ignore_errors=True)
  
@@ -12,7 +12,7 @@ Ensure blank slate:
 
 Create a new hierarchy stored on the local file system:
 
-```
+```python
 >>> import zarrita
 >>> h = zarrita.create_hierarchy('test.zr3')
 >>> h  # doctest: +ELLIPSIS
@@ -32,7 +32,7 @@ test.zr3
 
 Access a previously created hierarchy:
 
-```
+```python
 >>> h = zarrita.get_hierarchy('test.zr3')
 >>> h  # doctest: +ELLIPSIS
 <Hierarchy at file://.../test.zr3>
