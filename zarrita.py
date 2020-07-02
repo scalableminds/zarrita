@@ -343,7 +343,7 @@ class Hierarchy:
         raise KeyError(path)
 
     def __repr__(self):
-        return '<zarr_v3 Hierarchy>'
+        return f'<Hierarchy at {repr(self.store)}>'
     
     def list_children(self, path):
         _check_path(path)
@@ -452,7 +452,7 @@ class ExplicitGroup(Group):
 
     def __repr__(self):
         path = self.path
-        return f'<zarr_v3 Group {path}>'
+        return f'<Group {path}>'
 
 
 class ImplicitGroup(Group):
@@ -462,7 +462,7 @@ class ImplicitGroup(Group):
 
     def __repr__(self):
         path = self.path
-        return f'<zarr_v3 Group {path} (implied)>'
+        return f'<Group {path} (implied)>'
 
 
 class Array:
@@ -677,7 +677,7 @@ class Array:
 
     def __repr__(self):
         path = self.path
-        return f'<zarr_v3 Array {path}>'
+        return f'<Array {path}>'
 
 
 def is_total_slice(item, shape):
@@ -1061,3 +1061,6 @@ class FileSystemStore(Store):
                 result['prefixes'].append(name)
 
         return result
+
+    def __repr__(self):
+        return f'{self.fs.protocol}://{self.root}'

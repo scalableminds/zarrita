@@ -1,5 +1,6 @@
-**Here be dragons.** Minimal exploratory implementation of the Zarr version 3.0 core protocol. 
-This is a technical spike, not for production use.
+**Here be dragons.** Zarrita is a minimal, exploratory implementation of the [Zarr version 3.0 core protocol](https://zarr-specs.readthedocs.io/en/core-protocol-v3.0-dev/protocol/core/v3.0.html). This is a technical spike only, not for production use.
+
+This README contains a doctest suite to verify basic functionality using local file system storage. 
 
 Ensure blank slate:
 
@@ -12,15 +13,14 @@ Ensure blank slate:
 Create a new hierarchy stored on the local file system:
 
 ```
->>> import zarr_v3
->>> h = zarr_v3.create_hierarchy('test.zr3')
->>> h
-<zarr_v3 Hierarchy>
+>>> import zarrita
+>>> h = zarrita.create_hierarchy('test.zr3')
+>>> h  # doctest: +ELLIPSIS
+<Hierarchy at file://.../test.zr3>
 >>> from sh import tree, cat
->>> tree('test.zr3', '-n', '--noreport')
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
 └── zarr.json
-<BLANKLINE>
 >>> cat('test.zr3/zarr.json')
 {
     "zarr_format": "https://purl.org/zarr/spec/protocol/core/3.0",
@@ -33,9 +33,9 @@ test.zr3
 Access a previously created hierarchy:
 
 ```
->>> h = zarr_v3.get_hierarchy('test.zr3')
->>> h
-<zarr_v3 Hierarchy>
+>>> h = zarrita.get_hierarchy('test.zr3')
+>>> h  # doctest: +ELLIPSIS
+<Hierarchy at file://.../test.zr3>
 
 ```
 
@@ -47,7 +47,7 @@ Create an array:
 >>> attrs = {'question': 'life', 'answer': 42}
 >>> a = h.create_array('/arthur/dent', shape=(5, 10), dtype='i4', chunk_shape=(2, 5), compressor=compressor, attrs=attrs)
 >>> a
-<zarr_v3 Array /arthur/dent>
+<Array /arthur/dent>
 >>> a.path
 '/arthur/dent'
 >>> a.name
@@ -64,14 +64,13 @@ dtype('int32')
 GZip(level=1)
 >>> a.attrs
 {'question': 'life', 'answer': 42}
->>> tree('test.zr3', '-n', '--noreport')
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
 ├── meta
 │   └── root
 │       └── arthur
 │           └── dent.array
 └── zarr.json
-<BLANKLINE>
 >>> cat('test.zr3/meta/root/arthur/dent.array')
 {
     "shape": [
@@ -109,14 +108,14 @@ Create a group:
 >>> attrs = {'heart': 'gold', 'improbability': 'infinite'}
 >>> g = h.create_group('/tricia/mcmillan', attrs=attrs)
 >>> g
-<zarr_v3 Group /tricia/mcmillan>
+<Group /tricia/mcmillan>
 >>> g.path
 '/tricia/mcmillan'
 >>> g.name
 'mcmillan'
 >>> g.attrs
 {'heart': 'gold', 'improbability': 'infinite'}
->>> tree('test.zr3', '-n', '--noreport')
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
 ├── meta
 │   └── root
@@ -125,7 +124,6 @@ test.zr3
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
-<BLANKLINE>
 >>> cat('test.zr3/meta/root/tricia/mcmillan.group')
 {
     "extensions": [],
@@ -142,7 +140,7 @@ Access an array:
 ```
 >>> a = h['/arthur/dent']
 >>> a
-<zarr_v3 Array /arthur/dent>
+<Array /arthur/dent>
 >>> a.shape
 (5, 10)
 >>> a.dtype
@@ -161,7 +159,7 @@ Access an explicit group:
 ```
 >>> g = h['/tricia/mcmillan']
 >>> g
-<zarr_v3 Group /tricia/mcmillan>
+<Group /tricia/mcmillan>
 >>> g.attrs
 {'heart': 'gold', 'improbability': 'infinite'}
 
@@ -171,11 +169,11 @@ Access implicit groups:
 
 ```
 >>> h['/']
-<zarr_v3 Group / (implied)>
+<Group / (implied)>
 >>> h['/arthur']
-<zarr_v3 Group /arthur (implied)>
+<Group /arthur (implied)>
 >>> h['/tricia']
-<zarr_v3 Group /tricia (implied)>
+<Group /tricia (implied)>
 
 ```
 
@@ -184,17 +182,17 @@ Access nodes via groups:
 ```
 >>> root = h['/']
 >>> root
-<zarr_v3 Group / (implied)>
+<Group / (implied)>
 >>> arthur = root['arthur']
 >>> arthur
-<zarr_v3 Group /arthur (implied)>
+<Group /arthur (implied)>
 >>> arthur['dent']
-<zarr_v3 Array /arthur/dent>
+<Array /arthur/dent>
 >>> tricia = root['tricia']
 >>> tricia
-<zarr_v3 Group /tricia (implied)>
+<Group /tricia (implied)>
 >>> tricia['mcmillan']
-<zarr_v3 Group /tricia/mcmillan>
+<Group /tricia/mcmillan>
 
 ```
 
@@ -217,7 +215,7 @@ Alternative way to explore the hierarchy:
 ```
 >>> root = h['/']
 >>> root
-<zarr_v3 Group / (implied)>
+<Group / (implied)>
 >>> root.list_children()
 [{'name': 'arthur', 'type': 'implicit_group'}, {'name': 'tricia', 'type': 'implicit_group'}]
 >>> root['tricia'].list_children()
@@ -235,8 +233,8 @@ Read and write data into an array:
 >>> import numpy as np
 >>> a = h['/arthur/dent']
 >>> a
-<zarr_v3 Array /arthur/dent>
->>> tree('test.zr3', '-n', '--noreport')
+<Array /arthur/dent>
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
 ├── meta
 │   └── root
@@ -245,7 +243,6 @@ test.zr3
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
-<BLANKLINE>
 >>> a[:, :]
 array([[0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -271,7 +268,7 @@ array([[42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
        [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0],
        [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0],
        [ 0,  0,  0,  0,  0,  0,  0,  0,  0,  0]], dtype=int32)
->>> tree('test.zr3', '-n', '--noreport')
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
 ├── data
 │   └── arthur
@@ -285,7 +282,6 @@ test.zr3
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
-<BLANKLINE>
 >>> a[:, 0] = 42
 >>> a[:]
 array([[42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
@@ -293,7 +289,7 @@ array([[42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
        [42,  0,  0,  0,  0,  0,  0,  0,  0,  0],
        [42,  0,  0,  0,  0,  0,  0,  0,  0,  0],
        [42,  0,  0,  0,  0,  0,  0,  0,  0,  0]], dtype=int32)
->>> tree('test.zr3', '-n', '--noreport')
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
 ├── data
 │   └── arthur
@@ -309,7 +305,6 @@ test.zr3
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
-<BLANKLINE>
 >>> a[:] = 42
 >>> a[:]
 array([[42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
@@ -317,7 +312,7 @@ array([[42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
        [42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
        [42, 42, 42, 42, 42, 42, 42, 42, 42, 42],
        [42, 42, 42, 42, 42, 42, 42, 42, 42, 42]], dtype=int32)
->>> tree('test.zr3', '-n', '--noreport')
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
 ├── data
 │   └── arthur
@@ -335,7 +330,6 @@ test.zr3
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
-<BLANKLINE>
 >>> a[0, :] = np.arange(10)
 >>> a[:]
 array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
