@@ -1,6 +1,6 @@
 **Here be dragons.** Zarrita is a minimal, exploratory implementation of the [Zarr version 3.0 core protocol](https://zarr-specs.readthedocs.io/en/core-protocol-v3.0-dev/protocol/core/v3.0.html). This is a technical spike only, not for production use.
 
-This README contains a doctest suite to verify basic functionality using local file system storage. 
+This README contains a doctest suite to verify basic functionality. Both local and remote file systems are supported via [fsspec](https://filesystem-spec.readthedocs.io/en/latest/).
 
 Ensure blank slate:
 
@@ -377,5 +377,46 @@ array([[ 0,  1,  2,  3,  4,  5,  6],
 array([[12, 13, 14, 15, 16],
        [22, 23, 24, 25, 26],
        [32, 33, 34, 35, 36]], dtype=int32)
+
+```
+
+Use cloud storage (data previously copied to GCS):
+
+```python
+>>> h = zarrita.get_hierarchy('gs://zarr-demo/v3/test.zr3', token='anon')
+>>> h
+<Hierarchy at gs://zarr-demo/v3/test.zr3>
+>>> h.list_children('/')
+[{'name': 'arthur', 'type': 'implicit_group'}, {'name': 'tricia', 'type': 'implicit_group'}]
+>>> h.list_children('/arthur')
+[{'name': 'dent', 'type': 'array'}]
+>>> h.list_children('/tricia')
+[{'name': 'mcmillan', 'type': 'explicit_group'}]
+>>> h.list_children('/tricia/mcmillan')
+[]
+>>> h['/']
+<Group / (implied)>
+>>> h['/tricia']
+<Group /tricia (implied)>
+>>> g = h['/tricia/mcmillan']
+>>> g
+<Group /tricia/mcmillan>
+>>> g.attrs
+{'heart': 'gold', 'improbability': 'infinite'}
+>>> a = h['/arthur/dent']
+>>> a
+<Array /arthur/dent>
+>>> a.shape
+(5, 10)
+>>> a.dtype
+dtype('int32')
+>>> a.attrs
+{'question': 'life', 'answer': 42}
+>>> a[:]
+array([[ 0,  1,  2,  3,  4,  5,  6,  7,  8,  9],
+       [10, 11, 12, 13, 14, 15, 16, 17, 18, 19],
+       [20, 21, 22, 23, 24, 25, 26, 27, 28, 29],
+       [30, 31, 32, 33, 34, 35, 36, 37, 38, 39],
+       [40, 41, 42, 43, 44, 45, 46, 47, 48, 49]], dtype=int32)
 
 ```

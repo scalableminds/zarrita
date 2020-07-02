@@ -27,21 +27,21 @@ def _json_decode(b):
     return o
 
 
-def _check_store(store):
+def _check_store(store, **storage_options):
 
     # if store arg is a string, assume it's an fsspec-style URL
     if isinstance(store, str):
-        store = FileSystemStore(store)
+        store = FileSystemStore(store, **storage_options)
 
     assert isinstance(store, Store)
 
     return store
 
 
-def create_hierarchy(store):
+def create_hierarchy(store, **storage_options):
 
     # sanity checks
-    store = _check_store(store)
+    store = _check_store(store, **storage_options)
 
     # create entry point metadata document
     meta = {
@@ -61,10 +61,10 @@ def create_hierarchy(store):
     return hierarchy
 
 
-def get_hierarchy(store):
+def get_hierarchy(store, **storage_options):
 
     # sanity checks
-    store = _check_store(store)
+    store = _check_store(store, **storage_options)
 
     # retrieve and parse entry point metadata document
     meta_key = 'zarr.json'
@@ -978,11 +978,11 @@ class FileSystemStore(Store):
     # our own implementation in order to be able to add some extra methods for
     # listing keys.
 
-    def __init__(self, url, **kwargs):
+    def __init__(self, url, **storage_options):
         assert isinstance(url, str)
 
         # instantiate file system
-        fs, root = fsspec.core.url_to_fs(url, **kwargs)
+        fs, root = fsspec.core.url_to_fs(url, **storage_options)
         self.fs = fs
         self.root = root.rstrip('/')
 
@@ -1063,4 +1063,7 @@ class FileSystemStore(Store):
         return result
 
     def __repr__(self):
-        return f'{self.fs.protocol}://{self.root}'
+        protocol = self.fs.protocol
+        if isinstance(protocol, tuple):
+            protocol = protocol[-1]
+        return f'{protocol}://{self.root}'
