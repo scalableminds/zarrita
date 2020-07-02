@@ -1,3 +1,0 @@
-fsspec
-numpy
-numcodecs
