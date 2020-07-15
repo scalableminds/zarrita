@@ -10,6 +10,8 @@ Ensure blank slate:
  
 ```
 
+## Create a hierarchy
+
 Create a new hierarchy stored on the local file system:
 
 ```python
@@ -30,6 +32,8 @@ test.zr3
 
 ```
 
+## Open a hierarchy
+
 Access a previously created hierarchy:
 
 ```python
@@ -39,7 +43,7 @@ Access a previously created hierarchy:
 
 ```
 
-Create an array:
+## Create an array
 
 ```python
 >>> from numcodecs import GZip
@@ -102,7 +106,7 @@ test.zr3
 
 ```
 
-Create a group:
+## Create a group
 
 ```python
 >>> attrs = {'heart': 'gold', 'improbability': 'infinite'}
@@ -135,7 +139,34 @@ test.zr3
 
 ```
 
-Access an array:
+
+## Create nodes via groups
+
+```python
+>>> h.root.create_group('marvin')
+<Group /marvin>
+>>> h.root['marvin'].create_group('paranoid')
+<Group /marvin/paranoid>
+>>> h.root['marvin'].create_array('android', shape=(42, 42), dtype=bool, chunk_shape=(2, 2))
+<Array /marvin/android>
+>>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
+test.zr3
+├── meta
+│   └── root
+│       ├── arthur
+│       │   └── dent.array
+│       ├── marvin
+│       │   ├── android.array
+│       │   └── paranoid.group
+│       ├── marvin.group
+│       └── tricia
+│           └── mcmillan.group
+└── zarr.json
+
+```
+
+
+## Access an array
 
 ```python
 >>> a = h['/arthur/dent']
@@ -154,7 +185,7 @@ GZip(level=1)
 
 ```
 
-Access an explicit group:
+## Access an explicit group
 
 ```python
 >>> g = h['/tricia/mcmillan']
@@ -165,7 +196,7 @@ Access an explicit group:
 
 ```
 
-Access implicit groups:
+## Access implicit groups
 
 ```python
 >>> h['/']
@@ -177,7 +208,7 @@ Access implicit groups:
 
 ```
 
-Access nodes via groups:
+## Access nodes via groups
 
 ```python
 >>> root = h['/']
@@ -196,11 +227,16 @@ Access nodes via groups:
 
 ```
 
-Explore the hierarchy:
+
+## List group children
+
+Explore the hierarchy top-down:
 
 ```python
->>> h.list_children('/')
-[{'name': 'arthur', 'type': 'implicit_group'}, {'name': 'tricia', 'type': 'implicit_group'}]
+>>> h.list_children('/')  # doctest: +NORMALIZE_WHITESPACE
+[{'name': 'marvin', 'type': 'explicit_group'}, 
+ {'name': 'arthur', 'type': 'implicit_group'}, 
+ {'name': 'tricia', 'type': 'implicit_group'}]
 >>> h.list_children('/tricia')
 [{'name': 'mcmillan', 'type': 'explicit_group'}]
 >>> h.list_children('/tricia/mcmillan')
@@ -213,21 +249,63 @@ Explore the hierarchy:
 Alternative way to explore the hierarchy:
 
 ```python
->>> root = h['/']
->>> root
+>>> h.root
 <Group / (implied)>
->>> root.list_children()
-[{'name': 'arthur', 'type': 'implicit_group'}, {'name': 'tricia', 'type': 'implicit_group'}]
->>> root['tricia'].list_children()
+>>> h.root.list_children()  # doctest: +NORMALIZE_WHITESPACE
+[{'name': 'marvin', 'type': 'explicit_group'}, 
+ {'name': 'arthur', 'type': 'implicit_group'}, 
+ {'name': 'tricia', 'type': 'implicit_group'}]
+>>> h.root['tricia'].list_children()
 [{'name': 'mcmillan', 'type': 'explicit_group'}]
->>> root['tricia']['mcmillan'].list_children()
+>>> h.root['tricia']['mcmillan'].list_children()
 []
->>> root['arthur'].list_children()
+>>> h.root['arthur'].list_children()
 [{'name': 'dent', 'type': 'array'}]
 
 ```
 
-Read and write data into an array:
+## Check existence of nodes in a hierarchy
+
+```python
+>>> '/' in h
+True
+>>> '/arthur' in h
+True
+>>> '/arthur/dent' in h
+True
+>>> '/zaphod' in h
+False
+>>> '/zaphod/beeblebrox' in h
+False
+>>> '/tricia' in h
+True
+>>> '/tricia/mcmillan' in h
+True
+
+```
+
+
+## Check existence of children in a group
+
+```python
+>>> 'arthur' in h.root
+True
+>>> 'tricia' in h.root
+True
+>>> 'zaphod' in h.root
+False
+>>> g = h.root['arthur']
+>>> 'dent' in g
+True
+>>> g = h.root['tricia']
+>>> 'mcmillan' in g
+True
+>>> 'beeblebrox' in g
+False
+
+```
+
+## Read and write array data
 
 ```python
 >>> import numpy as np
@@ -240,6 +318,10 @@ test.zr3
 │   └── root
 │       ├── arthur
 │       │   └── dent.array
+│       ├── marvin
+│       │   ├── android.array
+│       │   └── paranoid.group
+│       ├── marvin.group
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
@@ -279,6 +361,10 @@ test.zr3
 │   └── root
 │       ├── arthur
 │       │   └── dent.array
+│       ├── marvin
+│       │   ├── android.array
+│       │   └── paranoid.group
+│       ├── marvin.group
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
@@ -302,6 +388,10 @@ test.zr3
 │   └── root
 │       ├── arthur
 │       │   └── dent.array
+│       ├── marvin
+│       │   ├── android.array
+│       │   └── paranoid.group
+│       ├── marvin.group
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
@@ -327,6 +417,10 @@ test.zr3
 │   └── root
 │       ├── arthur
 │       │   └── dent.array
+│       ├── marvin
+│       │   ├── android.array
+│       │   └── paranoid.group
+│       ├── marvin.group
 │       └── tricia
 │           └── mcmillan.group
 └── zarr.json
@@ -380,14 +474,31 @@ array([[12, 13, 14, 15, 16],
 
 ```
 
-Use cloud storage (data previously copied to GCS):
+
+## Invalid node names
+
+```python
+>>> bad_paths = '', '//', '/foo//bar', ' ', '.', '/../', '/foo/./bar', '/foo/../bar', '/ ', 'Καλημέρα'
+>>> for p in bad_paths:
+...     try:
+...         h.create_group(p)
+...     except ValueError:
+...         pass
+
+```
+
+## Use cloud storage
+ 
+Read data previously copied to GCS:
 
 ```python
 >>> h = zarrita.get_hierarchy('gs://zarr-demo/v3/test.zr3', token='anon')
 >>> h
 <Hierarchy at gs://zarr-demo/v3/test.zr3>
->>> h.list_children('/')
-[{'name': 'arthur', 'type': 'implicit_group'}, {'name': 'tricia', 'type': 'implicit_group'}]
+>>> h.list_children('/')  # doctest: +NORMALIZE_WHITESPACE
+[{'name': 'marvin', 'type': 'explicit_group'}, 
+ {'name': 'arthur', 'type': 'implicit_group'},
+ {'name': 'tricia', 'type': 'implicit_group'}]
 >>> h.list_children('/arthur')
 [{'name': 'dent', 'type': 'array'}]
 >>> h.list_children('/tricia')

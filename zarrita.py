@@ -1,12 +1,16 @@
 # standard library dependencies
+from __future__ import annotations
 import json
 import numbers
 import itertools
 import collections
 import math
+from collections.abc import Mapping, MutableMapping
+from typing import Iterator, Union, Optional, Tuple, Any, List, Dict, NamedTuple
 
 
 # third-party dependencies
+
 import fsspec
 import numpy as np
 import numcodecs
@@ -14,20 +18,21 @@ from numcodecs.abc import Codec
 from numcodecs.compat import ensure_ndarray
 
 
-def _json_encode(o):
+def _json_encode(o: Mapping) -> bytes:
     s = json.dumps(o, ensure_ascii=False, allow_nan=False, indent=4,
                    sort_keys=False)
     b = s.encode('utf8')
     return b
 
 
-def _json_decode(b):
+def _json_decode(b: bytes) -> Mapping:
     assert isinstance(b, bytes)
     o = json.loads(b)
     return o
 
 
-def _check_store(store, **storage_options):
+def _check_store(store: Union[str, Store],
+                 **storage_options) -> Store:
 
     # if store arg is a string, assume it's an fsspec-style URL
     if isinstance(store, str):
@@ -38,17 +43,17 @@ def _check_store(store, **storage_options):
     return store
 
 
-def create_hierarchy(store, **storage_options):
+def create_hierarchy(store: Store, **storage_options) -> Hierarchy:
 
     # sanity checks
     store = _check_store(store, **storage_options)
 
     # create entry point metadata document
-    meta = {
-        'zarr_format': 'https://purl.org/zarr/spec/protocol/core/3.0',
-        'metadata_encoding': 'application/json',
-        'extensions': [],
-    }
+    meta: Dict[str, Any] = dict(
+        zarr_format='https://purl.org/zarr/spec/protocol/core/3.0',
+        metadata_encoding='application/json',
+        extensions=[],
+    )
 
     # serialise and store metadata document
     meta_doc = _json_encode(meta)
@@ -61,7 +66,7 @@ def create_hierarchy(store, **storage_options):
     return hierarchy
 
 
-def get_hierarchy(store, **storage_options):
+def get_hierarchy(store: Store, **storage_options) -> Hierarchy:
 
     # sanity checks
     store = _check_store(store, **storage_options)
@@ -95,23 +100,37 @@ def get_hierarchy(store, **storage_options):
     return hierarchy
 
 
-def _check_path(path):
+ALLOWED_NODE_NAME_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-'
+
+
+def _check_path(path: str) -> None:
     assert isinstance(path, str)
-    assert path[0] == '/'
+    if len(path) == 0:
+        raise ValueError
+    if path[0] != '/':
+        raise ValueError
     if len(path) > 1:
-        assert path[-1] != '/'
+        segments = path[1:].split('/')
+        for segment in segments:
+            if len(segment) == 0:
+                raise ValueError
+            for c in segment:
+                if c not in ALLOWED_NODE_NAME_CHARS:
+                    raise ValueError
+            if all([c == '.' for c in segment]):
+                raise ValueError
 
 
-def _check_attrs(attrs):
-    assert attrs is None or isinstance(attrs, dict)
+def _check_attrs(attrs: Optional[Mapping]) -> None:
+    assert attrs is None or isinstance(attrs, Mapping)
 
 
-def _check_shape(shape):
+def _check_shape(shape: Tuple[Any, ...]) -> None:
     assert isinstance(shape, tuple)
     assert all([isinstance(s, int) for s in shape])
 
 
-def _check_dtype(dtype):
+def _check_dtype(dtype: Any) -> np.dtype:
     if not isinstance(dtype, np.dtype):
         dtype = np.dtype(dtype)
     assert dtype.str in {
@@ -126,17 +145,17 @@ def _check_dtype(dtype):
     return dtype
 
 
-def _check_chunk_shape(chunk_shape, shape):
+def _check_chunk_shape(chunk_shape: Tuple[Any, ...], shape: Tuple[Any, ...]) -> None:
     assert isinstance(chunk_shape, tuple)
     assert all([isinstance(c, int) for c in chunk_shape])
     assert len(chunk_shape) == len(shape)
 
 
-def _check_compressor(compressor):
-    assert compressor is None or isinstance(compressor, numcodecs.abc.Codec)
+def _check_compressor(compressor: Optional[Codec]) -> None:
+    assert compressor is None or isinstance(compressor, Codec)
 
 
-def _encode_codec(codec):
+def _encode_codec_metadata(codec: Codec) -> Optional[Mapping]:
     if codec is None:
         return None
 
@@ -151,7 +170,7 @@ def _encode_codec(codec):
     return meta
 
 
-def _decode_codec(meta):
+def _decode_codec_metadata(meta: Mapping) -> Optional[Codec]:
     if meta is None:
         return None
 
@@ -162,22 +181,28 @@ def _decode_codec(meta):
     return codec
 
 
-class Hierarchy:
+class Hierarchy(Mapping):
 
-    def __init__(self, store):
+    def __init__(self, store: Store):
         self.store = store
 
-    def create_group(self, path, attrs=None):
+    @property
+    def root(self) -> Node:
+        return self['/']
+
+    def create_group(self,
+                     path: str,
+                     attrs: Mapping = None) -> ExplicitGroup:
 
         # sanity checks
         _check_path(path)
         _check_attrs(attrs)
 
         # create group metadata
-        meta = {
-            'extensions': [],
-            'attributes': attrs,
-        }
+        meta: Dict[str, Any] = dict(
+            extensions=[],
+            attributes=attrs,
+        )
 
         # serialise and store metadata document
         meta_doc = _json_encode(meta)
@@ -194,8 +219,14 @@ class Hierarchy:
 
         return group
 
-    def create_array(self, path, shape, dtype, chunk_shape, compressor,
-                     fill_value=None, attrs=None):
+    def create_array(self,
+                     path: str,
+                     shape: Tuple[int],
+                     dtype: Any,
+                     chunk_shape: Tuple[int],
+                     compressor: Optional[Codec] = None,
+                     fill_value: Any = None,
+                     attrs: Optional[Mapping] = None) -> Array:
 
         # sanity checks
         _check_path(path)
@@ -212,19 +243,19 @@ class Hierarchy:
             data_type = dtype.str
 
         # create array metadata
-        meta = {
-            'shape': shape,
-            'data_type': data_type,
-            'chunk_grid': {
-                'type': 'regular',
-                'chunk_shape': chunk_shape,
-            },
-            'chunk_memory_layout': 'C',
-            'compressor': _encode_codec(compressor),
-            'fill_value': fill_value,
-            'extensions': [],
-            'attributes': attrs,
-        }
+        meta: Dict[str, Any] = dict(
+            shape=shape,
+            data_type=data_type,
+            chunk_grid=dict(
+                type='regular',
+                chunk_shape=chunk_shape,
+            ),
+            chunk_memory_layout='C',
+            compressor=_encode_codec_metadata(compressor),
+            fill_value=fill_value,
+            extensions=[],
+            attributes=attrs,
+        )
 
         # serialise and store metadata document
         meta_doc = _json_encode(meta)
@@ -243,7 +274,7 @@ class Hierarchy:
 
         return array
 
-    def get_array(self, path):
+    def get_array(self, path: str) -> Array:
         _check_path(path)
 
         # retrieve and parse array metadata document
@@ -254,24 +285,26 @@ class Hierarchy:
         try:
             meta_doc = self.store[meta_key]
         except KeyError:
-            raise NodeNotFoundError(path)
+            raise NodeNotFoundError(path=path)
         meta = _json_decode(meta_doc)
 
         # decode and check metadata
         shape = tuple(meta['shape'])
-        dtype = np.dtype(meta['data_type'])
+        _check_shape(shape)
+        dtype = _check_dtype(meta['data_type'])
         chunk_grid = meta['chunk_grid']
         if chunk_grid['type'] != 'regular':
             raise NotImplementedError
         chunk_shape = tuple(chunk_grid['chunk_shape'])
+        _check_chunk_shape(chunk_shape, shape)
         chunk_memory_layout = meta['chunk_memory_layout']
         if chunk_memory_layout != 'C':
             raise NotImplementedError
-        compressor = _decode_codec(meta['compressor'])
+        compressor = _decode_codec_metadata(meta['compressor'])
         fill_value = meta['fill_value']
         for spec in meta['extensions']:
             if spec['must_understand']:
-                raise NotImplementedError
+                raise NotImplementedError(spec)
         attrs = meta['attributes']
 
         # instantiate array
@@ -281,7 +314,7 @@ class Hierarchy:
 
         return a
 
-    def get_explicit_group(self, path):
+    def get_explicit_group(self, path: str) -> ExplicitGroup:
         _check_path(path)
 
         # retrieve and parse group metadata document
@@ -292,7 +325,7 @@ class Hierarchy:
         try:
             meta_doc = self.store[meta_key]
         except KeyError:
-            raise NodeNotFoundError(path)
+            raise NodeNotFoundError(path=path)
         meta = _json_decode(meta_doc)
 
         # check metadata
@@ -303,7 +336,7 @@ class Hierarchy:
 
         return g
 
-    def get_implicit_group(self, path):
+    def get_implicit_group(self, path: str) -> ImplicitGroup:
         _check_path(path)
 
         # attempt to list directory
@@ -312,40 +345,46 @@ class Hierarchy:
         else:
             key_prefix = f'meta/root{path}/'
         result = self.store.list_dir(key_prefix)
-        if not (result['contents'] or result['prefixes']):
-            raise NodeNotFoundError(path)
+        if not (result.contents or result.prefixes):
+            raise NodeNotFoundError(path=path)
 
         # instantiate implicit group
         g = ImplicitGroup(store=self.store, path=path, owner=self)
 
         return g
 
-    def __getitem__(self, path):
+    def __getitem__(self, path: str) -> Node:
 
         # try array
         try:
-            return self.get_array(path)
+            return self.get_array(path=path)
         except NodeNotFoundError:
             pass
 
         # try explicit group
         try:
-            return self.get_explicit_group(path)
+            return self.get_explicit_group(path=path)
         except NodeNotFoundError:
             pass
 
         # try implicit group
         try:
-            return self.get_implicit_group(path)
+            return self.get_implicit_group(path=path)
         except NodeNotFoundError:
             pass
 
         raise KeyError(path)
 
-    def __repr__(self):
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def __iter__(self) -> Iterator[str]:
+        yield from []  # TODO
+
+    def __repr__(self) -> str:
         return f'<Hierarchy at {repr(self.store)}>'
     
-    def list_children(self, path):
+    def list_children(self, path: str) -> List[Dict]:
         _check_path(path)
         
         # attempt to list directory
@@ -360,7 +399,7 @@ class Hierarchy:
         names = set()
 
         # find explicit children
-        for n in sorted(result['contents']):
+        for n in sorted(result.contents):
             if n.endswith('.array'):
                 node_type = 'array'
                 name = n[:-len('.array')]
@@ -374,7 +413,7 @@ class Hierarchy:
             names.add(name)
 
         # find implicit children
-        for n in sorted(result['prefixes']):
+        for n in sorted(result.prefixes):
             if n not in names:
                 children.append({'name': n, 'type': 'implicit_group'})
 
@@ -383,25 +422,37 @@ class Hierarchy:
 
 class NodeNotFoundError(Exception):
 
-    def __init__(self, path):
+    def __init__(self, path: str):
         self.path = path
 
 
-class Group:
+class Node:
 
-    def __init__(self, store, path, owner):
+    def __init__(self, store: Store, path: str, owner: Hierarchy):
         self.store = store
         self.path = path
         self.owner = owner
 
     @property
-    def name(self):
+    def name(self) -> str:
         return self.path.split('/')[-1]
 
-    def list_children(self):
-        return self.owner.list_children(self.path)
 
-    def _dereference_path(self, path):
+class Group(Node, Mapping):
+
+    def __init__(self, store: Store, path: str, owner: Hierarchy):
+        super().__init__(store=store, path=path, owner=owner)
+
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def __iter__(self) -> Iterator[str]:
+        yield from []  # TODO all child names
+
+    def list_children(self) -> List[Dict]:
+        return self.owner.list_children(path=self.path)
+
+    def _dereference_path(self, path: str) -> str:
         assert isinstance(path, str)
         if path[0] != '/':
             # treat as relative path
@@ -414,66 +465,65 @@ class Group:
             assert path[-1] != '/'
         return path
 
-    def __getitem__(self, path):
+    def __getitem__(self, path: str) -> Node:
         path = self._dereference_path(path)
         return self.owner[path]
 
-    def create_group(self, path, **kwargs):
+    def create_group(self, path: str, **kwargs) -> ExplicitGroup:
         path = self._dereference_path(path)
-        return self.owner.create_group(self.path + path, **kwargs)
+        return self.owner.create_group(path=path, **kwargs)
 
-    def create_array(self, path, **kwargs):
+    def create_array(self, path: str, **kwargs) -> Array:
         path = self._dereference_path(path)
-        return self.owner.create_array(self.path + path, **kwargs)
+        return self.owner.create_array(path=path, **kwargs)
     
-    def get_array(self, path):
-        # pass through to owner
-        _check_path(path)
-        return self.owner.get_array(self.path + path)
+    def get_array(self, path: str) -> Array:
+        path = self._dereference_path(path)
+        return self.owner.get_array(path=path)
 
-    def get_explicit_group(self, path):
-        # pass through to owner
-        _check_path(path)
-        return self.owner.get_explicit_group(self.path + path)
+    def get_explicit_group(self, path: str) -> ExplicitGroup:
+        path = self._dereference_path(path)
+        return self.owner.get_explicit_group(path=path)
 
-    def get_implicit_group(self, path):
-        # pass through to owner
-        _check_path(path)
-        return self.owner.get_implicit_group(self.path + path)
+    def get_implicit_group(self, path: str) -> ImplicitGroup:
+        path = self._dereference_path(path)
+        return self.owner.get_implicit_group(path=path)
 
 
 class ExplicitGroup(Group):
 
-    # TODO persist changes to attrs
-
-    def __init__(self, store, path, owner, attrs):
+    def __init__(self, store: Store, path: str, owner: Hierarchy, attrs: Optional[Mapping]):
         super().__init__(store=store, path=path, owner=owner)
         self.attrs = attrs
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         path = self.path
         return f'<Group {path}>'
 
 
 class ImplicitGroup(Group):
 
-    def __init__(self, store, path, owner):
+    def __init__(self, store: Store, path: str, owner: Hierarchy):
         super().__init__(store=store, path=path, owner=owner)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         path = self.path
         return f'<Group {path} (implied)>'
 
 
-class Array:
+class Array(Node):
 
-    # TODO persist changes to attrs
-
-    def __init__(self, store, path, owner, shape, dtype, chunk_shape,
-                 compressor, fill_value, attrs):
-        self.store = store
-        self.path = path
-        self.owner = owner
+    def __init__(self,
+                 store: Store,
+                 path: str,
+                 owner: Hierarchy,
+                 shape: Tuple[int, ...],
+                 dtype: Any,
+                 chunk_shape: Tuple[int, ...],
+                 compressor: Optional[Codec],
+                 fill_value: Any = None,
+                 attrs: Optional[Mapping] = None):
+        super().__init__(store=store, path=path, owner=owner)
         self.shape = shape
         self.dtype = dtype
         self.chunk_shape = chunk_shape
@@ -482,18 +532,14 @@ class Array:
         self.attrs = attrs
 
     @property
-    def ndim(self):
+    def ndim(self) -> int:
         return len(self.shape)
-
-    @property
-    def name(self):
-        return self.path.split('/')[-1]
 
     def __getitem__(self, selection):
         return self.get_basic_selection(selection)
 
     def get_basic_selection(self, selection):
-        indexer = BasicIndexer(selection, shape=self.shape, chunk_shape=self.chunk_shape)
+        indexer = _BasicIndexer(selection, shape=self.shape, chunk_shape=self.chunk_shape)
         return self._get_selection(indexer=indexer)
 
     def _get_selection(self, indexer):
@@ -567,7 +613,7 @@ class Array:
         self.set_basic_selection(selection, value)
 
     def set_basic_selection(self, selection, value):
-        indexer = BasicIndexer(selection, shape=self.shape, chunk_shape=self.chunk_shape)
+        indexer = _BasicIndexer(selection, shape=self.shape, chunk_shape=self.chunk_shape)
         self._set_selection(indexer, value)
 
     def _set_selection(self, indexer, value):
@@ -613,7 +659,7 @@ class Array:
         # obtain key for chunk storage
         chunk_key = self._chunk_key(chunk_coords)
 
-        if is_total_slice(chunk_selection, self.chunk_shape):
+        if _is_total_slice(chunk_selection, self.chunk_shape):
             # totally replace chunk
 
             # optimization: we are completely replacing the chunk, so no need
@@ -680,7 +726,7 @@ class Array:
         return f'<Array {path}>'
 
 
-def is_total_slice(item, shape):
+def _is_total_slice(item, shape):
     """Determine whether `item` specifies a complete slice of array with the
     given `shape`. Used to optimize __setitem__ operations on the Chunk
     class."""
@@ -704,34 +750,34 @@ def is_total_slice(item, shape):
         raise TypeError('expected slice or tuple of slices, found %r' % item)
 
 
-def ensure_tuple(v):
+def _ensure_tuple(v):
     if not isinstance(v, tuple):
         v = (v,)
     return v
 
 
-def err_too_many_indices(selection, shape):
+def _err_too_many_indices(selection, shape):
     raise IndexError('too many indices for array; expected {}, got {}'
                      .format(len(shape), len(selection)))
 
 
-def err_boundscheck(dim_len):
+def _err_boundscheck(dim_len):
     raise IndexError('index out of bounds for dimension with length {}'
                      .format(dim_len))
 
 
-def err_negative_step():
+def _err_negative_step():
     raise IndexError('only slices with step >= 1 are supported')
 
 
-def check_selection_length(selection, shape):
+def _check_selection_length(selection, shape):
     if len(selection) > len(shape):
-        err_too_many_indices(selection, shape)
+        _err_too_many_indices(selection, shape)
 
 
-def replace_ellipsis(selection, shape):
+def _replace_ellipsis(selection, shape):
 
-    selection = ensure_tuple(selection)
+    selection = _ensure_tuple(selection)
 
     # count number of ellipsis present
     n_ellipsis = sum(1 for i in selection if i is Ellipsis)
@@ -762,28 +808,18 @@ def replace_ellipsis(selection, shape):
         selection += (slice(None),) * (len(shape) - len(selection))
 
     # check selection not too long
-    check_selection_length(selection, shape)
+    _check_selection_length(selection, shape)
 
     return selection
 
 
-ChunkDimProjection = collections.namedtuple(
-    'ChunkDimProjection',
-    ('dim_chunk_ix', 'dim_chunk_sel', 'dim_out_sel')
-)
-"""A mapping from chunk to output array for a single dimension.
-Parameters
-----------
-dim_chunk_ix
-    Index of chunk.
-dim_chunk_sel
-    Selection of items from chunk array.
-dim_out_sel
-    Selection of items in target (output) array.
-"""
+class _ChunkDimProjection(NamedTuple):
+    dim_chunk_ix: Any
+    dim_chunk_sel: Any
+    dim_out_sel: Any
 
 
-def normalize_integer_selection(dim_sel, dim_len):
+def _normalize_integer_selection(dim_sel, dim_len):
 
     # normalize type to int
     dim_sel = int(dim_sel)
@@ -794,17 +830,17 @@ def normalize_integer_selection(dim_sel, dim_len):
 
     # handle out of bounds
     if dim_sel >= dim_len or dim_sel < 0:
-        err_boundscheck(dim_len)
+        _err_boundscheck(dim_len)
 
     return dim_sel
 
 
-class IntDimIndexer(object):
+class _IntDimIndexer(object):
 
     def __init__(self, dim_sel, dim_len, dim_chunk_len):
 
         # normalize
-        dim_sel = normalize_integer_selection(dim_sel, dim_len)
+        dim_sel = _normalize_integer_selection(dim_sel, dim_len)
 
         # store attributes
         self.dim_sel = dim_sel
@@ -817,33 +853,33 @@ class IntDimIndexer(object):
         dim_offset = dim_chunk_ix * self.dim_chunk_len
         dim_chunk_sel = self.dim_sel - dim_offset
         dim_out_sel = None
-        yield ChunkDimProjection(dim_chunk_ix, dim_chunk_sel, dim_out_sel)
+        yield _ChunkDimProjection(dim_chunk_ix, dim_chunk_sel, dim_out_sel)
 
 
-def ceildiv(a, b):
+def _ceildiv(a, b):
     return math.ceil(a / b)
 
 
-class SliceDimIndexer(object):
+class _SliceDimIndexer(object):
 
     def __init__(self, dim_sel, dim_len, dim_chunk_len):
 
         # normalize
         self.start, self.stop, self.step = dim_sel.indices(dim_len)
         if self.step < 1:
-            err_negative_step()
+            _err_negative_step()
 
         # store attributes
         self.dim_len = dim_len
         self.dim_chunk_len = dim_chunk_len
-        self.nitems = max(0, ceildiv((self.stop - self.start), self.step))
-        self.nchunks = ceildiv(self.dim_len, self.dim_chunk_len)
+        self.nitems = max(0, _ceildiv((self.stop - self.start), self.step))
+        self.nchunks = _ceildiv(self.dim_len, self.dim_chunk_len)
 
     def __iter__(self):
 
         # figure out the range of chunks we need to visit
         dim_chunk_ix_from = self.start // self.dim_chunk_len
-        dim_chunk_ix_to = ceildiv(self.stop, self.dim_chunk_len)
+        dim_chunk_ix_to = _ceildiv(self.stop, self.dim_chunk_len)
 
         # iterate over chunks in range
         for dim_chunk_ix in range(dim_chunk_ix_from, dim_chunk_ix_to):
@@ -862,7 +898,7 @@ class SliceDimIndexer(object):
                 if remainder:
                     dim_chunk_sel_start += self.step - remainder
                 # compute number of previous items, provides offset into output array
-                dim_out_offset = ceildiv((dim_offset - self.start), self.step)
+                dim_out_offset = _ceildiv((dim_offset - self.start), self.step)
 
             else:
                 # selection starts within current chunk
@@ -878,47 +914,35 @@ class SliceDimIndexer(object):
                 dim_chunk_sel_stop = self.stop - dim_offset
 
             dim_chunk_sel = slice(dim_chunk_sel_start, dim_chunk_sel_stop, self.step)
-            dim_chunk_nitems = ceildiv((dim_chunk_sel_stop - dim_chunk_sel_start),
-                                       self.step)
+            dim_chunk_nitems = _ceildiv((dim_chunk_sel_stop - dim_chunk_sel_start),
+                                        self.step)
             dim_out_sel = slice(dim_out_offset, dim_out_offset + dim_chunk_nitems)
 
-            yield ChunkDimProjection(dim_chunk_ix, dim_chunk_sel, dim_out_sel)
+            yield _ChunkDimProjection(dim_chunk_ix, dim_chunk_sel, dim_out_sel)
 
 
-ChunkProjection = collections.namedtuple(
-    'ChunkProjection',
-    ('chunk_coords', 'chunk_selection', 'out_selection')
-)
-"""A mapping of items from chunk to output array. Can be used to extract items from the
-chunk array for loading into an output array. Can also be used to extract items from a
-value array for setting/updating in a chunk array.
-Parameters
-----------
-chunk_coords
-    Indices of chunk.
-chunk_selection
-    Selection of items from chunk array.
-out_selection
-    Selection of items in target (output) array.
-"""
+class _ChunkProjection(NamedTuple):
+    chunk_coords: Any
+    chunk_selection: Any
+    out_selection: Any
 
 
-class BasicIndexer(object):
+class _BasicIndexer(object):
 
     def __init__(self, selection, shape, chunk_shape):
 
         # handle ellipsis
-        selection = replace_ellipsis(selection, shape)
+        selection = _replace_ellipsis(selection, shape)
 
         # setup per-dimension indexers
         dim_indexers = []
         for dim_sel, dim_len, dim_chunk_len in zip(selection, shape, chunk_shape):
 
             if isinstance(dim_sel, numbers.Integral):
-                dim_indexer = IntDimIndexer(dim_sel, dim_len, dim_chunk_len)
+                dim_indexer = _IntDimIndexer(dim_sel, dim_len, dim_chunk_len)
 
             elif isinstance(dim_sel, slice):
-                dim_indexer = SliceDimIndexer(dim_sel, dim_len, dim_chunk_len)
+                dim_indexer = _SliceDimIndexer(dim_sel, dim_len, dim_chunk_len)
 
             else:
                 raise IndexError('unsupported selection item for basic indexing; '
@@ -929,7 +953,7 @@ class BasicIndexer(object):
 
         self.dim_indexers = dim_indexers
         self.shape = tuple(s.nitems for s in self.dim_indexers
-                           if not isinstance(s, IntDimIndexer))
+                           if not isinstance(s, _IntDimIndexer))
 
     def __iter__(self):
         for dim_projections in itertools.product(*self.dim_indexers):
@@ -939,36 +963,35 @@ class BasicIndexer(object):
             out_selection = tuple(p.dim_out_sel for p in dim_projections
                                   if p.dim_out_sel is not None)
 
-            yield ChunkProjection(chunk_coords, chunk_selection, out_selection)
+            yield _ChunkProjection(chunk_coords, chunk_selection, out_selection)
 
 
-class Store:
+class ListDirResult(NamedTuple):
+    contents: List[str]
+    prefixes: List[str]
 
-    def __getitem__(self, key):
+
+class Store(MutableMapping):
+
+    def __getitem__(self, key: str, default: Optional[bytes] = None) -> bytes:
         raise NotImplementedError
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: bytes) -> None:
         raise NotImplementedError
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: str) -> None:
         raise NotImplementedError
 
-    def keys(self):
+    def __iter__(self) -> Iterator[str]:
         raise NotImplementedError
 
-    def values(self):
+    def __len__(self) -> int:
+        return sum(1 for _ in self)
+
+    def list_pre(self, prefix: str) -> Iterator[str]:
         raise NotImplementedError
 
-    def items(self):
-        raise NotImplementedError
-
-    def __iter__(self):
-        return self.keys()
-
-    def list_pre(self, prefix):
-        raise NotImplementedError
-
-    def list_dir(self, prefix):
+    def list_dir(self, prefix: str) -> ListDirResult:
         raise NotImplementedError
 
 
@@ -978,7 +1001,7 @@ class FileSystemStore(Store):
     # our own implementation in order to be able to add some extra methods for
     # listing keys.
 
-    def __init__(self, url, **storage_options):
+    def __init__(self, url: str, **storage_options):
         assert isinstance(url, str)
 
         # instantiate file system
@@ -986,7 +1009,7 @@ class FileSystemStore(Store):
         self.fs = fs
         self.root = root.rstrip('/')
 
-    def __getitem__(self, key, default=None):
+    def __getitem__(self, key: str, default: Optional[bytes] = None) -> bytes:
         assert isinstance(key, str)
         path = f'{self.root}/{key}'
 
@@ -999,7 +1022,7 @@ class FileSystemStore(Store):
 
         return value
 
-    def __setitem__(self, key, value):
+    def __setitem__(self, key: str, value: bytes) -> None:
         assert isinstance(key, str)
         path = f'{self.root}/{key}'
 
@@ -1011,58 +1034,42 @@ class FileSystemStore(Store):
         with self.fs.open(path, 'wb') as f:
             f.write(value)
 
-    def __delitem__(self, key):
+    def __delitem__(self, key: str) -> None:
         assert isinstance(key, str)
         # TODO
         pass
 
-    def keys(self):
-        # TODO
-        pass
+    def __iter__(self) -> Iterator[str]:
+        yield from []  # TODO
 
-    def values(self):
-        # TODO
-        pass
+    def list_pre(self, prefix: str) -> Iterator[str]:
+        raise NotImplementedError
 
-    def items(self):
-        # TODO
-        pass
-
-    def __iter__(self):
-        return self.keys()
-
-    def list_pre(self, prefix):
-        assert isinstance(prefix, str)
-        # TODO
-        pass
-
-    def list_dir(self, prefix=''):
+    def list_dir(self, prefix: str = '') -> ListDirResult:
         assert isinstance(prefix, str)
 
         # setup result
-        result = {
-            'contents': [],
-            'prefixes': [],
-        }
+        contents: List[str] = []
+        prefixes: List[str] = []
 
         # attempt to list directory
         path = f'{self.root}/{prefix}'
         try:
             ls = self.fs.ls(path, detail=True)
         except FileNotFoundError:
-            return result
+            return ListDirResult(contents=contents, prefixes=prefixes)
 
         # build result
         for item in ls:
             name = item['name'].split(path)[1]
             if item['type'] == 'file':
-                result['contents'].append(name)
+                contents.append(name)
             elif item['type'] == 'directory':
-                result['prefixes'].append(name)
+                prefixes.append(name)
 
-        return result
+        return ListDirResult(contents=contents, prefixes=prefixes)
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         protocol = self.fs.protocol
         if isinstance(protocol, tuple):
             protocol = protocol[-1]
