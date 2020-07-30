@@ -3,11 +3,10 @@ from __future__ import annotations
 import json
 import numbers
 import itertools
-import collections
 import math
 from collections.abc import Mapping, MutableMapping
 from typing import Iterator, Union, Optional, Tuple, Any, List, Dict, NamedTuple
-
+from operator import itemgetter
 
 # third-party dependencies
 
@@ -18,16 +17,18 @@ from numcodecs.abc import Codec
 from numcodecs.compat import ensure_ndarray
 
 
-def _json_encode(o: Mapping) -> bytes:
+def _json_encode_object(o: Mapping) -> bytes:
+    assert isinstance(o, Mapping)
     s = json.dumps(o, ensure_ascii=False, allow_nan=False, indent=4,
                    sort_keys=False)
     b = s.encode('utf8')
     return b
 
 
-def _json_decode(b: bytes) -> Mapping:
+def _json_decode_object(b: bytes) -> Mapping:
     assert isinstance(b, bytes)
     o = json.loads(b)
+    assert isinstance(o, Mapping)
     return o
 
 
@@ -43,7 +44,7 @@ def _check_store(store: Union[str, Store],
     return store
 
 
-def create_hierarchy(store: Store, **storage_options) -> Hierarchy:
+def create_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
 
     # sanity checks
     store = _check_store(store, **storage_options)
@@ -56,7 +57,7 @@ def create_hierarchy(store: Store, **storage_options) -> Hierarchy:
     )
 
     # serialise and store metadata document
-    meta_doc = _json_encode(meta)
+    meta_doc = _json_encode_object(meta)
     meta_key = 'zarr.json'
     store[meta_key] = meta_doc
 
@@ -66,7 +67,7 @@ def create_hierarchy(store: Store, **storage_options) -> Hierarchy:
     return hierarchy
 
 
-def get_hierarchy(store: Store, **storage_options) -> Hierarchy:
+def get_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
 
     # sanity checks
     store = _check_store(store, **storage_options)
@@ -74,11 +75,13 @@ def get_hierarchy(store: Store, **storage_options) -> Hierarchy:
     # retrieve and parse entry point metadata document
     meta_key = 'zarr.json'
     meta_doc = store[meta_key]
-    meta = _json_decode(meta_doc)
+    meta = _json_decode_object(meta_doc)
 
     # check protocol version
     zarr_format = meta['zarr_format']
-    protocol_version = zarr_format.split('/')[-1]
+    protocol_uri, protocol_version = zarr_format.rsplit('/', 1)
+    if protocol_uri != 'https://purl.org/zarr/spec/protocol/core':
+        raise NotImplementedError
     protocol_major_version = int(protocol_version.split('.')[0])
     if protocol_major_version != 3:
         raise NotImplementedError
@@ -192,7 +195,7 @@ class Hierarchy(Mapping):
 
     def create_group(self,
                      path: str,
-                     attrs: Mapping = None) -> ExplicitGroup:
+                     attrs: Optional[Mapping] = None) -> ExplicitGroup:
 
         # sanity checks
         _check_path(path)
@@ -205,7 +208,7 @@ class Hierarchy(Mapping):
         )
 
         # serialise and store metadata document
-        meta_doc = _json_encode(meta)
+        meta_doc = _json_encode_object(meta)
         if path == '/':
             # special case root path
             meta_key = 'meta/root.group'
@@ -258,7 +261,7 @@ class Hierarchy(Mapping):
         )
 
         # serialise and store metadata document
-        meta_doc = _json_encode(meta)
+        meta_doc = _json_encode_object(meta)
         if path == '/':
             # special case root path
             meta_key = 'meta/root.array'
@@ -286,7 +289,7 @@ class Hierarchy(Mapping):
             meta_doc = self.store[meta_key]
         except KeyError:
             raise NodeNotFoundError(path=path)
-        meta = _json_decode(meta_doc)
+        meta = _json_decode_object(meta_doc)
 
         # decode and check metadata
         shape = tuple(meta['shape'])
@@ -326,7 +329,7 @@ class Hierarchy(Mapping):
             meta_doc = self.store[meta_key]
         except KeyError:
             raise NodeNotFoundError(path=path)
-        meta = _json_decode(meta_doc)
+        meta = _json_decode_object(meta_doc)
 
         # check metadata
         attrs = meta['attributes']
@@ -354,6 +357,11 @@ class Hierarchy(Mapping):
         return g
 
     def __getitem__(self, path: str) -> Node:
+        assert isinstance(path, str)
+
+        # handle relative paths, treat as relative to the root, for user convenience
+        if path[0] != '/':
+            path = '/' + path
 
         # try array
         try:
@@ -379,12 +387,21 @@ class Hierarchy(Mapping):
         return sum(1 for _ in self)
 
     def __iter__(self) -> Iterator[str]:
-        yield from []  # TODO
+        # return all paths for explicit nodes
+        result = self.store.list_pre('meta/')
+        for key in result:
+            if key in {'root.array', 'root.group'}:
+                yield '/'
+            elif key.startswith('root/'):
+                if key.endswith('.array'):
+                    yield key[len('root'):-len('.array')]
+                if key.endswith('.group'):
+                    yield key[len('root'):-len('.group')]
 
     def __repr__(self) -> str:
         return f'<Hierarchy at {repr(self.store)}>'
     
-    def list_children(self, path: str) -> List[Dict]:
+    def iter_children(self, path: str) -> Iterator[Dict]:
         _check_path(path)
         
         # attempt to list directory
@@ -394,12 +411,11 @@ class Hierarchy(Mapping):
             key_prefix = f'meta/root{path}/'
         result = self.store.list_dir(key_prefix)
         
-        # compile children
-        children = []
+        # keep track of children found
         names = set()
 
         # find explicit children
-        for n in sorted(result.contents):
+        for n in result.contents:
             if n.endswith('.array'):
                 node_type = 'array'
                 name = n[:-len('.array')]
@@ -409,15 +425,16 @@ class Hierarchy(Mapping):
             else:
                 # ignore
                 continue
-            children.append({'name': name, 'type': node_type})
             names.add(name)
+            yield {'name': name, 'type': node_type}
 
         # find implicit children
-        for n in sorted(result.prefixes):
+        for n in result.prefixes:
             if n not in names:
-                children.append({'name': n, 'type': 'implicit_group'})
+                yield {'name': n, 'type': 'implicit_group'}
 
-        return children
+    def list_children(self, path: str) -> List[Dict]:
+        return sorted(self.iter_children(path=path), key=itemgetter('name'))
 
 
 class NodeNotFoundError(Exception):
@@ -447,10 +464,14 @@ class Group(Node, Mapping):
         return sum(1 for _ in self)
 
     def __iter__(self) -> Iterator[str]:
-        yield from []  # TODO all child names
+        for child in self.iter_children():
+            yield child['name']
+
+    def iter_children(self) -> Iterator[Dict]:
+        yield from self.owner.iter_children(path=self.path)
 
     def list_children(self) -> List[Dict]:
-        return self.owner.list_children(path=self.path)
+        return sorted(self.iter_children(), key=itemgetter('name'))
 
     def _dereference_path(self, path: str) -> str:
         assert isinstance(path, str)
@@ -988,7 +1009,7 @@ class Store(MutableMapping):
     def __len__(self) -> int:
         return sum(1 for _ in self)
 
-    def list_pre(self, prefix: str) -> Iterator[str]:
+    def list_pre(self, prefix: str) -> List[str]:
         raise NotImplementedError
 
     def list_dir(self, prefix: str) -> ListDirResult:
@@ -1040,10 +1061,17 @@ class FileSystemStore(Store):
         pass
 
     def __iter__(self) -> Iterator[str]:
-        yield from []  # TODO
+        for item in self.fs.find(self.root, withdirs=False, detail=False):
+            yield item.split(self.root + '/')[1]
 
-    def list_pre(self, prefix: str) -> Iterator[str]:
-        raise NotImplementedError
+    def list_pre(self, prefix: str) -> List[str]:
+        assert isinstance(prefix, str)
+        path = f'{self.root}/{prefix}'
+        try:
+            items = self.fs.find(path, withdirs=False, detail=False)
+        except FileNotFoundError:
+            return []
+        return [item.split(path)[1] for item in items]
 
     def list_dir(self, prefix: str = '') -> ListDirResult:
         assert isinstance(prefix, str)
