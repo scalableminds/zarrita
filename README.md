@@ -372,7 +372,7 @@ Iterate over a hierarchy returns paths for all explicit nodes:
 
 ```python
 >>> sorted(h)
-['/arthur/dent', '/marvin', '/marvin/android', '/marvin/paranoid', '/tricia/mcmillan']
+['/', '/arthur', '/arthur/dent', '/marvin', '/marvin/android', '/marvin/paranoid', '/tricia', '/tricia/mcmillan']
 
 ```
 
@@ -568,7 +568,7 @@ Read data previously copied to GCS:
 >>> h
 <Hierarchy at gs://zarr-demo/v3/test.zr3>
 >>> sorted(h)
-['/arthur/dent', '/marvin', '/marvin/android', '/marvin/paranoid', '/tricia/mcmillan']
+['/', '/arthur', '/arthur/dent', '/marvin', '/marvin/android', '/marvin/paranoid', '/tricia', '/tricia/mcmillan']
 >>> h.list_children('/')  # doctest: +NORMALIZE_WHITESPACE
 [{'name': 'arthur', 'type': 'implicit_group'},
  {'name': 'marvin', 'type': 'explicit_group'}, 

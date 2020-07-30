@@ -387,16 +387,7 @@ class Hierarchy(Mapping):
         return sum(1 for _ in self)
 
     def __iter__(self) -> Iterator[str]:
-        # return all paths for explicit nodes
-        result = self.store.list_pre('meta/')
-        for key in result:
-            if key in {'root.array', 'root.group'}:
-                yield '/'
-            elif key.startswith('root/'):
-                if key.endswith('.array'):
-                    yield key[len('root'):-len('.array')]
-                if key.endswith('.group'):
-                    yield key[len('root'):-len('.group')]
+        yield from self.get_nodes().keys()
 
     def __repr__(self) -> str:
         return f'<Hierarchy at {repr(self.store)}>'
