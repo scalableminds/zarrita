@@ -400,7 +400,38 @@ class Hierarchy(Mapping):
 
     def __repr__(self) -> str:
         return f'<Hierarchy at {repr(self.store)}>'
-    
+
+    def get_nodes(self) -> Dict:
+        nodes: Dict[str, str] = dict()
+        result = self.store.list_pre('meta/')
+        for key in result:
+            if key == 'root.array':
+                nodes['/'] = 'array'
+            elif key == 'root.group':
+                nodes['/'] = 'explicit_group'
+            elif key.startswith('root/'):
+                # TODO remove code duplication below
+                if key.endswith('.array'):
+                    path = key[len('root'):-len('.array')]
+                    nodes[path] = 'array'
+                    parent = path.rsplit('/', 1)[0]
+                    while parent:
+                        nodes.setdefault(parent, 'implicit_group')
+                        parent = parent.rsplit('/', 1)[0]
+                    nodes.setdefault('/', 'implicit_group')
+                if key.endswith('.group'):
+                    path = key[len('root'):-len('.group')]
+                    nodes[path] = 'explicit_group'
+                    parent = path.rsplit('/', 1)[0]
+                    while parent:
+                        nodes.setdefault(parent, 'implicit_group')
+                        parent = parent.rsplit('/', 1)[0]
+                    nodes.setdefault('/', 'implicit_group')
+        # sort by path for readability
+        items = sorted(nodes.items())
+        nodes = dict(items)
+        return nodes
+
     def iter_children(self, path: str) -> Iterator[Dict]:
         _check_path(path)
         

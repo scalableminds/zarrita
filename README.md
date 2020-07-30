@@ -257,7 +257,7 @@ hierarchy is treated as relative to the root group. E.g.:
 
 ```
 
-## Dicover group children
+## Explore the hierarchy
 
 Explore the hierarchy top-down:
 
@@ -292,6 +292,22 @@ Alternative way to explore the hierarchy:
 [{'name': 'dent', 'type': 'array'}]
 
 ```
+
+View the whole hierarchy in one go:
+
+```python
+>>> h.get_nodes()  # doctest: +NORMALIZE_WHITESPACE
+{'/': 'implicit_group',
+ '/arthur': 'implicit_group',
+ '/arthur/dent': 'array', 
+ '/marvin': 'explicit_group', 
+ '/marvin/android': 'array', 
+ '/marvin/paranoid': 'explicit_group', 
+ '/tricia': 'implicit_group', 
+ '/tricia/mcmillan': 'explicit_group'}
+
+```
+
 
 ## Check existence of nodes in a hierarchy
 
