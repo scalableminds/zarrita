@@ -262,34 +262,32 @@ hierarchy is treated as relative to the root group. E.g.:
 Explore the hierarchy top-down:
 
 ```python
->>> h.list_children('/')  # doctest: +NORMALIZE_WHITESPACE
-[{'name': 'arthur', 'type': 'implicit_group'}, 
- {'name': 'marvin', 'type': 'explicit_group'}, 
- {'name': 'tricia', 'type': 'implicit_group'}]
->>> h.list_children('/tricia')
-[{'name': 'mcmillan', 'type': 'explicit_group'}]
->>> h.list_children('/tricia/mcmillan')
-[]
->>> h.list_children('/arthur')
-[{'name': 'dent', 'type': 'array'}]
+>>> h.get_children('/')  # doctest: +NORMALIZE_WHITESPACE
+{'arthur': 'implicit_group', 
+ 'marvin': 'explicit_group', 
+ 'tricia': 'implicit_group'}
+>>> h.get_children('/tricia')
+{'mcmillan': 'explicit_group'}
+>>> h.get_children('/tricia/mcmillan')
+{}
+>>> h.get_children('/arthur')
+{'dent': 'array'}
 
 ```
 
 Alternative way to explore the hierarchy:
 
 ```python
->>> h.root
-<Group / (implied)>
->>> h.root.list_children()  # doctest: +NORMALIZE_WHITESPACE
-[{'name': 'arthur', 'type': 'implicit_group'}, 
- {'name': 'marvin', 'type': 'explicit_group'}, 
- {'name': 'tricia', 'type': 'implicit_group'}]
->>> h.root['tricia'].list_children()
-[{'name': 'mcmillan', 'type': 'explicit_group'}]
->>> h.root['tricia']['mcmillan'].list_children()
-[]
->>> h.root['arthur'].list_children()
-[{'name': 'dent', 'type': 'array'}]
+>>> h.get_children()  # doctest: +NORMALIZE_WHITESPACE
+{'arthur': 'implicit_group', 
+ 'marvin': 'explicit_group', 
+ 'tricia': 'implicit_group'}
+>>> h['tricia'].get_children()
+{'mcmillan': 'explicit_group'}
+>>> h['tricia']['mcmillan'].get_children()
+{}
+>>> h['arthur'].get_children()
+{'dent': 'array'}
 
 ```
 
@@ -569,16 +567,16 @@ Read data previously copied to GCS:
 <Hierarchy at gs://zarr-demo/v3/test.zr3>
 >>> sorted(h)
 ['/', '/arthur', '/arthur/dent', '/marvin', '/marvin/android', '/marvin/paranoid', '/tricia', '/tricia/mcmillan']
->>> h.list_children('/')  # doctest: +NORMALIZE_WHITESPACE
-[{'name': 'arthur', 'type': 'implicit_group'},
- {'name': 'marvin', 'type': 'explicit_group'}, 
- {'name': 'tricia', 'type': 'implicit_group'}]
->>> h.list_children('/arthur')
-[{'name': 'dent', 'type': 'array'}]
->>> h.list_children('/tricia')
-[{'name': 'mcmillan', 'type': 'explicit_group'}]
->>> h.list_children('/tricia/mcmillan')
-[]
+>>> h.get_children('/')  # doctest: +NORMALIZE_WHITESPACE
+{'arthur': 'implicit_group', 
+ 'marvin': 'explicit_group', 
+ 'tricia': 'implicit_group'}
+>>> h.get_children('/tricia')
+{'mcmillan': 'explicit_group'}
+>>> h.get_children('/tricia/mcmillan')
+{}
+>>> h.get_children('/arthur')
+{'dent': 'array'}
 >>> h['/']
 <Group / (implied)>
 >>> h['/tricia']

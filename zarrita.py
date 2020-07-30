@@ -416,13 +416,16 @@ class Hierarchy(Mapping):
                         nodes.setdefault(parent, 'implicit_group')
                         parent = parent.rsplit('/', 1)[0]
                     nodes.setdefault('/', 'implicit_group')
+
         # sort by path for readability
         items = sorted(nodes.items())
         nodes = dict(items)
+
         return nodes
 
-    def iter_children(self, path: str) -> Iterator[Dict]:
+    def get_children(self, path: str = '/') -> Dict[str, str]:
         path = _check_path(path)
+        children = dict()
         
         # attempt to list directory
         if path == '/':
@@ -431,30 +434,26 @@ class Hierarchy(Mapping):
             key_prefix = f'meta/root{path}/'
         result = self.store.list_dir(key_prefix)
         
-        # keep track of children found
-        names = set()
-
         # find explicit children
         for n in result.contents:
             if n.endswith('.array'):
                 node_type = 'array'
                 name = n[:-len('.array')]
+                children[name] = node_type
             elif n.endswith('.group'):
                 node_type = 'explicit_group'
                 name = n[:-len('.group')]
-            else:
-                # ignore
-                continue
-            names.add(name)
-            yield {'name': name, 'type': node_type}
+                children[name] = node_type
 
         # find implicit children
-        for n in result.prefixes:
-            if n not in names:
-                yield {'name': n, 'type': 'implicit_group'}
+        for name in result.prefixes:
+            children.setdefault(name, 'implicit_group')
 
-    def list_children(self, path: str) -> List[Dict]:
-        return sorted(self.iter_children(path=path), key=itemgetter('name'))
+        # sort by path for readability
+        items = sorted(children.items())
+        children = dict(items)
+
+        return children
 
 
 class NodeNotFoundError(Exception):
@@ -484,14 +483,10 @@ class Group(Node, Mapping):
         return sum(1 for _ in self)
 
     def __iter__(self) -> Iterator[str]:
-        for child in self.iter_children():
-            yield child['name']
+        yield from self.get_children().keys()
 
-    def iter_children(self) -> Iterator[Dict]:
-        yield from self.owner.iter_children(path=self.path)
-
-    def list_children(self) -> List[Dict]:
-        return sorted(self.iter_children(), key=itemgetter('name'))
+    def get_children(self) -> Dict[str, str]:
+        return self.owner.get_children(path=self.path)
 
     def _dereference_path(self, path: str) -> str:
         assert isinstance(path, str)
