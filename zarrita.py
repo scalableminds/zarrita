@@ -106,12 +106,13 @@ def get_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
 ALLOWED_NODE_NAME_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-'
 
 
-def _check_path(path: str) -> None:
+def _check_path(path: str) -> str:
     assert isinstance(path, str)
     if len(path) == 0:
         raise ValueError
     if path[0] != '/':
-        raise ValueError
+        # handle relative paths, treat as relative to the root, for user convenience
+        path = '/' + path
     if len(path) > 1:
         segments = path[1:].split('/')
         for segment in segments:
@@ -122,6 +123,7 @@ def _check_path(path: str) -> None:
                     raise ValueError
             if all([c == '.' for c in segment]):
                 raise ValueError
+    return path
 
 
 def _check_attrs(attrs: Optional[Mapping]) -> None:
@@ -198,7 +200,7 @@ class Hierarchy(Mapping):
                      attrs: Optional[Mapping] = None) -> ExplicitGroup:
 
         # sanity checks
-        _check_path(path)
+        path = _check_path(path)
         _check_attrs(attrs)
 
         # create group metadata
@@ -232,7 +234,7 @@ class Hierarchy(Mapping):
                      attrs: Optional[Mapping] = None) -> Array:
 
         # sanity checks
-        _check_path(path)
+        path = _check_path(path)
         _check_shape(shape)
         dtype = _check_dtype(dtype)
         _check_chunk_shape(chunk_shape, shape)
@@ -278,7 +280,7 @@ class Hierarchy(Mapping):
         return array
 
     def get_array(self, path: str) -> Array:
-        _check_path(path)
+        path = _check_path(path)
 
         # retrieve and parse array metadata document
         if path == '/':
@@ -318,7 +320,7 @@ class Hierarchy(Mapping):
         return a
 
     def get_explicit_group(self, path: str) -> ExplicitGroup:
-        _check_path(path)
+        path = _check_path(path)
 
         # retrieve and parse group metadata document
         if path == '/':
@@ -340,7 +342,7 @@ class Hierarchy(Mapping):
         return g
 
     def get_implicit_group(self, path: str) -> ImplicitGroup:
-        _check_path(path)
+        path = _check_path(path)
 
         # attempt to list directory
         if path == '/':
@@ -358,10 +360,6 @@ class Hierarchy(Mapping):
 
     def __getitem__(self, path: str) -> Node:
         assert isinstance(path, str)
-
-        # handle relative paths, treat as relative to the root, for user convenience
-        if path[0] != '/':
-            path = '/' + path
 
         # try array
         try:
@@ -424,7 +422,7 @@ class Hierarchy(Mapping):
         return nodes
 
     def iter_children(self, path: str) -> Iterator[Dict]:
-        _check_path(path)
+        path = _check_path(path)
         
         # attempt to list directory
         if path == '/':

@@ -143,11 +143,11 @@ test.zr3
 ## Create nodes via groups
 
 ```python
->>> h.root.create_group('marvin')
+>>> h.create_group('marvin')
 <Group /marvin>
->>> h.root['marvin'].create_group('paranoid')
+>>> h['marvin'].create_group('paranoid')
 <Group /marvin/paranoid>
->>> h.root['marvin'].create_array('android', shape=(42, 42), dtype=bool, chunk_shape=(2, 2))
+>>> h['marvin'].create_array('android', shape=(42, 42), dtype=bool, chunk_shape=(2, 2))
 <Array /marvin/android>
 >>> tree('test.zr3', '-n', '--noreport')  # doctest: +NORMALIZE_WHITESPACE
 test.zr3
