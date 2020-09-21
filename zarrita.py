@@ -6,7 +6,6 @@ import itertools
 import math
 from collections.abc import Mapping, MutableMapping
 from typing import Iterator, Union, Optional, Tuple, Any, List, Dict, NamedTuple
-from operator import itemgetter
 
 # third-party dependencies
 
@@ -52,7 +51,7 @@ def create_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
     # create entry point metadata document
     meta: Dict[str, Any] = dict(
         zarr_format='https://purl.org/zarr/spec/protocol/core/3.0',
-        metadata_encoding='application/json',
+        metadata_encoding='https://purl.org/zarr/spec/protocol/core/3.0',
         extensions=[],
     )
 
@@ -88,7 +87,7 @@ def get_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
 
     # check metadata encoding
     metadata_encoding = meta['metadata_encoding']
-    if metadata_encoding != 'application/json':
+    if metadata_encoding != 'https://purl.org/zarr/spec/protocol/core/3.0':
         raise NotImplementedError
 
     # check extensions
@@ -229,6 +228,7 @@ class Hierarchy(Mapping):
                      shape: Tuple[int],
                      dtype: Any,
                      chunk_shape: Tuple[int],
+                     chunk_separator: str = '/',
                      compressor: Optional[Codec] = None,
                      fill_value: Any = None,
                      attrs: Optional[Mapping] = None) -> Array:
@@ -254,6 +254,7 @@ class Hierarchy(Mapping):
             chunk_grid=dict(
                 type='regular',
                 chunk_shape=chunk_shape,
+                separator=chunk_separator,
             ),
             chunk_memory_layout='C',
             compressor=_encode_codec_metadata(compressor),
@@ -274,8 +275,8 @@ class Hierarchy(Mapping):
         # instantiate array
         array = Array(store=self.store, path=path, owner=self,
                       shape=shape, dtype=dtype, chunk_shape=chunk_shape,
-                      compressor=compressor, fill_value=fill_value,
-                      attrs=attrs)
+                      chunk_separator=chunk_separator, compressor=compressor,
+                      fill_value=fill_value, attrs=attrs)
 
         return array
 
@@ -302,6 +303,7 @@ class Hierarchy(Mapping):
             raise NotImplementedError
         chunk_shape = tuple(chunk_grid['chunk_shape'])
         _check_chunk_shape(chunk_shape, shape)
+        chunk_separator = chunk_grid['separator']
         chunk_memory_layout = meta['chunk_memory_layout']
         if chunk_memory_layout != 'C':
             raise NotImplementedError
@@ -314,7 +316,8 @@ class Hierarchy(Mapping):
 
         # instantiate array
         a = Array(store=self.store, path=path, owner=self, shape=shape,
-                  dtype=dtype, chunk_shape=chunk_shape, compressor=compressor,
+                  dtype=dtype, chunk_shape=chunk_shape,
+                  chunk_separator=chunk_separator, compressor=compressor,
                   fill_value=fill_value, attrs=attrs)
 
         return a
@@ -556,6 +559,7 @@ class Array(Node):
                  shape: Tuple[int, ...],
                  dtype: Any,
                  chunk_shape: Tuple[int, ...],
+                 chunk_separator: str,
                  compressor: Optional[Codec],
                  fill_value: Any = None,
                  attrs: Optional[Mapping] = None):
@@ -563,6 +567,7 @@ class Array(Node):
         self.shape = shape
         self.dtype = dtype
         self.chunk_shape = chunk_shape
+        self.chunk_separator = chunk_separator
         self.compressor = compressor
         self.fill_value = fill_value
         self.attrs = attrs
@@ -619,13 +624,9 @@ class Array(Node):
             out[out_selection] = tmp
 
     def _chunk_key(self, chunk_coords):
-        suffix = '.'.join(map(str, chunk_coords))
-        if self.path == '/':
-            # special case array as root node
-            key = f'data/{suffix}'
-        else:
-            key = f'data{self.path}/{suffix}'
-        return key
+        chunk_identifier = 'c' + self.chunk_separator.join(map(str, chunk_coords))
+        chunk_key = f'data/root{self.path}/{chunk_identifier}'
+        return chunk_key
 
     def _decode_chunk(self, encoded_data):
 
