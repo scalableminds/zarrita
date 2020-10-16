@@ -20,7 +20,7 @@ def _json_encode_object(o: Mapping) -> bytes:
     assert isinstance(o, Mapping)
     s = json.dumps(o, ensure_ascii=False, allow_nan=False, indent=4,
                    sort_keys=False)
-    b = s.encode('utf8')
+    b = s.encode("utf8")
     return b
 
 
@@ -34,7 +34,7 @@ def _json_decode_object(b: bytes) -> Mapping:
 def _check_store(store: Union[str, Store],
                  **storage_options) -> Store:
 
-    # if store arg is a string, assume it's an fsspec-style URL
+    # if store arg is a string, assume it"s an fsspec-style URL
     if isinstance(store, str):
         store = FileSystemStore(store, **storage_options)
 
@@ -49,19 +49,21 @@ def create_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
     store = _check_store(store, **storage_options)
 
     # create entry point metadata document
+    meta_key_suffix = ".json"
     meta: Dict[str, Any] = dict(
-        zarr_format='https://purl.org/zarr/spec/protocol/core/3.0',
-        metadata_encoding='https://purl.org/zarr/spec/protocol/core/3.0',
+        zarr_format="https://purl.org/zarr/spec/protocol/core/3.0",
+        metadata_encoding="https://purl.org/zarr/spec/protocol/core/3.0",
+        metadata_key_suffix=meta_key_suffix,
         extensions=[],
     )
 
     # serialise and store metadata document
-    meta_doc = _json_encode_object(meta)
-    meta_key = 'zarr.json'
-    store[meta_key] = meta_doc
+    entry_meta_doc = _json_encode_object(meta)
+    entry_meta_key = "zarr.json"
+    store[entry_meta_key] = entry_meta_doc
 
     # instantiate a hierarchy
-    hierarchy = Hierarchy(store=store)
+    hierarchy = Hierarchy(store=store, meta_key_suffix=meta_key_suffix)
 
     return hierarchy
 
@@ -72,87 +74,98 @@ def get_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
     store = _check_store(store, **storage_options)
 
     # retrieve and parse entry point metadata document
-    meta_key = 'zarr.json'
+    meta_key = "zarr.json"
     meta_doc = store[meta_key]
     meta = _json_decode_object(meta_doc)
 
     # check protocol version
-    zarr_format = meta['zarr_format']
-    protocol_uri, protocol_version = zarr_format.rsplit('/', 1)
-    if protocol_uri != 'https://purl.org/zarr/spec/protocol/core':
+    zarr_format = meta["zarr_format"]
+    protocol_uri, protocol_version = zarr_format.rsplit("/", 1)
+    if protocol_uri != "https://purl.org/zarr/spec/protocol/core":
         raise NotImplementedError
-    protocol_major_version = int(protocol_version.split('.')[0])
+    protocol_major_version = int(protocol_version.split(".")[0])
     if protocol_major_version != 3:
         raise NotImplementedError
 
     # check metadata encoding
-    metadata_encoding = meta['metadata_encoding']
-    if metadata_encoding != 'https://purl.org/zarr/spec/protocol/core/3.0':
+    metadata_encoding = meta["metadata_encoding"]
+    if metadata_encoding != "https://purl.org/zarr/spec/protocol/core/3.0":
         raise NotImplementedError
+    meta_key_suffix = meta["metadata_key_suffix"]
 
     # check extensions
-    extensions = meta['extensions']
+    extensions = meta["extensions"]
     for spec in extensions:
-        if spec['must_understand']:
+        if spec["must_understand"]:
             raise NotImplementedError
 
     # instantiate hierarchy
-    hierarchy = Hierarchy(store=store)
+    hierarchy = Hierarchy(store=store, meta_key_suffix=meta_key_suffix)
 
     return hierarchy
 
 
-ALLOWED_NODE_NAME_CHARS = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-'
+ALLOWED_NODE_NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-"
 
 
 def _check_path(path: str) -> str:
     assert isinstance(path, str)
     if len(path) == 0:
         raise ValueError
-    if path[0] != '/':
+    if path[0] != "/":
         # handle relative paths, treat as relative to the root, for user convenience
-        path = '/' + path
+        path = "/" + path
     if len(path) > 1:
-        segments = path[1:].split('/')
+        segments = path[1:].split("/")
         for segment in segments:
             if len(segment) == 0:
                 raise ValueError
             for c in segment:
                 if c not in ALLOWED_NODE_NAME_CHARS:
                     raise ValueError
-            if all([c == '.' for c in segment]):
+            if all([c == "." for c in segment]):
                 raise ValueError
     return path
 
 
-def _check_attrs(attrs: Optional[Mapping]) -> None:
+def _check_attrs(attrs: Optional[Mapping]) -> Mapping:
     assert attrs is None or isinstance(attrs, Mapping)
+    if attrs is None:
+        attrs = dict()
+    return attrs
 
 
-def _check_shape(shape: Tuple[Any, ...]) -> None:
-    assert isinstance(shape, tuple)
+def _check_shape(shape: Union[int, Tuple[int, ...]]) -> Tuple[int, ...]:
+    assert isinstance(shape, (int, tuple))
+    if isinstance(shape, int):
+        shape = shape,
     assert all([isinstance(s, int) for s in shape])
+    return shape
 
 
 def _check_dtype(dtype: Any) -> np.dtype:
     if not isinstance(dtype, np.dtype):
         dtype = np.dtype(dtype)
     assert dtype.str in {
-        '|b1', 'i1', 'u1',
-        '<i2', '<i4', '<i8',
-        '>i2', '>i4', '>i8',
-        '<u2', '<u4', '<u8',
-        '>u2', '>u4', '>u8',
-        '<f2', '<f4', '<f8',
-        '>f2', '>f4', '>f8',
+        "|b1", "i1", "u1",
+        "<i2", "<i4", "<i8",
+        ">i2", ">i4", ">i8",
+        "<u2", "<u4", "<u8",
+        ">u2", ">u4", ">u8",
+        "<f2", "<f4", "<f8",
+        ">f2", ">f4", ">f8",
     }
     return dtype
 
 
-def _check_chunk_shape(chunk_shape: Tuple[Any, ...], shape: Tuple[Any, ...]) -> None:
-    assert isinstance(chunk_shape, tuple)
+def _check_chunk_shape(chunk_shape: Union[int, Tuple[int, ...]],
+                       shape: Tuple[int, ...]) -> Tuple[int, ...]:
+    assert isinstance(chunk_shape, (int, tuple))
+    if isinstance(chunk_shape, int):
+        chunk_shape = chunk_shape,
     assert all([isinstance(c, int) for c in chunk_shape])
     assert len(chunk_shape) == len(shape)
+    return chunk_shape
 
 
 def _check_compressor(compressor: Optional[Codec]) -> None:
@@ -164,12 +177,12 @@ def _encode_codec_metadata(codec: Codec) -> Optional[Mapping]:
         return None
 
     # only support gzip for now
-    assert codec.codec_id in {'gzip'}
+    assert codec.codec_id in {"gzip"}
     config = codec.get_config()
-    del config['id']
+    del config["id"]
     meta = {
-        'codec': 'https://purl.org/zarr/spec/codec/gzip/1.0',
-        'configuration': config,
+        "codec": "https://purl.org/zarr/spec/codec/gzip/1.0",
+        "configuration": config,
     }
     return meta
 
@@ -179,20 +192,47 @@ def _decode_codec_metadata(meta: Mapping) -> Optional[Codec]:
         return None
 
     # only support gzip for now
-    if meta['codec'] != 'https://purl.org/zarr/spec/codec/gzip/1.0':
+    if meta["codec"] != "https://purl.org/zarr/spec/codec/gzip/1.0":
         raise NotImplementedError
-    codec = numcodecs.GZip(level=meta['configuration']['level'])
+    codec = numcodecs.GZip(level=meta["configuration"]["level"])
     return codec
+
+
+def _array_meta_key(path: str, suffix: str):
+    if path == "/":
+        # special case root path
+        key = "meta/root.array" + suffix
+    else:
+        key = f"meta/root{path}.array" + suffix
+    return key
+
+
+def _group_meta_key(path: str, suffix: str):
+    if path == "/":
+        # special case root path
+        key = "meta/root.group" + suffix
+    else:
+        key = f"meta/root{path}.group" + suffix
+    return key
 
 
 class Hierarchy(Mapping):
 
-    def __init__(self, store: Store):
+    def __init__(self, store: Store, meta_key_suffix: str):
         self.store = store
+        self.meta_key_suffix = meta_key_suffix
 
     @property
     def root(self) -> Node:
-        return self['/']
+        return self["/"]
+
+    @property
+    def array_suffix(self) -> str:
+        return ".array" + self.meta_key_suffix
+
+    @property
+    def group_suffix(self) -> str:
+        return ".group" + self.meta_key_suffix
 
     def create_group(self,
                      path: str,
@@ -210,11 +250,7 @@ class Hierarchy(Mapping):
 
         # serialise and store metadata document
         meta_doc = _json_encode_object(meta)
-        if path == '/':
-            # special case root path
-            meta_key = 'meta/root.group'
-        else:
-            meta_key = f'meta/root{path}.group'
+        meta_key = _group_meta_key(path, self.meta_key_suffix)
         self.store[meta_key] = meta_doc
 
         # instantiate group
@@ -225,25 +261,25 @@ class Hierarchy(Mapping):
 
     def create_array(self,
                      path: str,
-                     shape: Tuple[int],
+                     shape: Union[int, Tuple[int, ...]],
                      dtype: Any,
-                     chunk_shape: Tuple[int],
-                     chunk_separator: str = '/',
+                     chunk_shape: Union[int, Tuple[int, ...]],
+                     chunk_separator: str = "/",
                      compressor: Optional[Codec] = None,
                      fill_value: Any = None,
                      attrs: Optional[Mapping] = None) -> Array:
 
         # sanity checks
         path = _check_path(path)
-        _check_shape(shape)
+        shape = _check_shape(shape)
         dtype = _check_dtype(dtype)
-        _check_chunk_shape(chunk_shape, shape)
+        chunk_shape = _check_chunk_shape(chunk_shape, shape)
         _check_compressor(compressor)
-        _check_attrs(attrs)
+        attrs = _check_attrs(attrs)
 
         # encode data type
         if dtype == np.bool:
-            data_type = 'bool'
+            data_type = "bool"
         else:
             data_type = dtype.str
 
@@ -252,24 +288,21 @@ class Hierarchy(Mapping):
             shape=shape,
             data_type=data_type,
             chunk_grid=dict(
-                type='regular',
+                type="regular",
                 chunk_shape=chunk_shape,
                 separator=chunk_separator,
             ),
-            chunk_memory_layout='C',
-            compressor=_encode_codec_metadata(compressor),
+            chunk_memory_layout="C",
             fill_value=fill_value,
             extensions=[],
             attributes=attrs,
         )
+        if compressor is not None:
+            meta["compressor"] = _encode_codec_metadata(compressor)
 
         # serialise and store metadata document
         meta_doc = _json_encode_object(meta)
-        if path == '/':
-            # special case root path
-            meta_key = 'meta/root.array'
-        else:
-            meta_key = f'meta/root{path}.array'
+        meta_key = _array_meta_key(path, self.meta_key_suffix)
         self.store[meta_key] = meta_doc
 
         # instantiate array
@@ -284,10 +317,7 @@ class Hierarchy(Mapping):
         path = _check_path(path)
 
         # retrieve and parse array metadata document
-        if path == '/':
-            meta_key = 'meta/root.array'
-        else:
-            meta_key = f'meta/root{path}.array'
+        meta_key = _array_meta_key(path, self.meta_key_suffix)
         try:
             meta_doc = self.store[meta_key]
         except KeyError:
@@ -295,24 +325,24 @@ class Hierarchy(Mapping):
         meta = _json_decode_object(meta_doc)
 
         # decode and check metadata
-        shape = tuple(meta['shape'])
+        shape = tuple(meta["shape"])
         _check_shape(shape)
-        dtype = _check_dtype(meta['data_type'])
-        chunk_grid = meta['chunk_grid']
-        if chunk_grid['type'] != 'regular':
+        dtype = _check_dtype(meta["data_type"])
+        chunk_grid = meta["chunk_grid"]
+        if chunk_grid["type"] != "regular":
             raise NotImplementedError
-        chunk_shape = tuple(chunk_grid['chunk_shape'])
+        chunk_shape = tuple(chunk_grid["chunk_shape"])
         _check_chunk_shape(chunk_shape, shape)
-        chunk_separator = chunk_grid['separator']
-        chunk_memory_layout = meta['chunk_memory_layout']
-        if chunk_memory_layout != 'C':
+        chunk_separator = chunk_grid["separator"]
+        chunk_memory_layout = meta["chunk_memory_layout"]
+        if chunk_memory_layout != "C":
             raise NotImplementedError
-        compressor = _decode_codec_metadata(meta['compressor'])
-        fill_value = meta['fill_value']
-        for spec in meta['extensions']:
-            if spec['must_understand']:
+        compressor = _decode_codec_metadata(meta.get("compressor", None))
+        fill_value = meta["fill_value"]
+        for spec in meta["extensions"]:
+            if spec["must_understand"]:
                 raise NotImplementedError(spec)
-        attrs = meta['attributes']
+        attrs = meta["attributes"]
 
         # instantiate array
         a = Array(store=self.store, path=path, owner=self, shape=shape,
@@ -326,10 +356,7 @@ class Hierarchy(Mapping):
         path = _check_path(path)
 
         # retrieve and parse group metadata document
-        if path == '/':
-            meta_key = 'meta/root.group'
-        else:
-            meta_key = f'meta/root{path}.group'
+        meta_key = _group_meta_key(path, self.meta_key_suffix)
         try:
             meta_doc = self.store[meta_key]
         except KeyError:
@@ -337,7 +364,7 @@ class Hierarchy(Mapping):
         meta = _json_decode_object(meta_doc)
 
         # check metadata
-        attrs = meta['attributes']
+        attrs = meta["attributes"]
 
         # instantiate explicit group
         g = ExplicitGroup(store=self.store, path=path, owner=self, attrs=attrs)
@@ -348,10 +375,10 @@ class Hierarchy(Mapping):
         path = _check_path(path)
 
         # attempt to list directory
-        if path == '/':
-            key_prefix = 'meta/root/'
+        if path == "/":
+            key_prefix = "meta/root/"
         else:
-            key_prefix = f'meta/root{path}/'
+            key_prefix = f"meta/root{path}/"
         result = self.store.list_dir(key_prefix)
         if not (result.contents or result.prefixes):
             raise NodeNotFoundError(path=path)
@@ -391,34 +418,34 @@ class Hierarchy(Mapping):
         yield from self.get_nodes().keys()
 
     def __repr__(self) -> str:
-        return f'<Hierarchy at {repr(self.store)}>'
+        return f"<Hierarchy at {repr(self.store)}>"
 
     def get_nodes(self) -> Dict:
         nodes: Dict[str, str] = dict()
-        result = self.store.list_pre('meta/')
+        result = self.store.list_prefix("meta/")
         for key in result:
-            if key == 'root.array':
-                nodes['/'] = 'array'
-            elif key == 'root.group':
-                nodes['/'] = 'explicit_group'
-            elif key.startswith('root/'):
+            if key == "root.array" + self.meta_key_suffix:
+                nodes["/"] = "array"
+            elif key == "root.group" + self.meta_key_suffix:
+                nodes["/"] = "explicit_group"
+            elif key.startswith("root/"):
                 # TODO remove code duplication below
-                if key.endswith('.array'):
-                    path = key[len('root'):-len('.array')]
-                    nodes[path] = 'array'
-                    parent = path.rsplit('/', 1)[0]
+                if key.endswith(self.array_suffix):
+                    path = key[len("root"):-len(self.array_suffix)]
+                    nodes[path] = "array"
+                    parent = path.rsplit("/", 1)[0]
                     while parent:
-                        nodes.setdefault(parent, 'implicit_group')
-                        parent = parent.rsplit('/', 1)[0]
-                    nodes.setdefault('/', 'implicit_group')
-                if key.endswith('.group'):
-                    path = key[len('root'):-len('.group')]
-                    nodes[path] = 'explicit_group'
-                    parent = path.rsplit('/', 1)[0]
+                        nodes.setdefault(parent, "implicit_group")
+                        parent = parent.rsplit("/", 1)[0]
+                    nodes.setdefault("/", "implicit_group")
+                if key.endswith(self.group_suffix):
+                    path = key[len("root"):-len(self.group_suffix)]
+                    nodes[path] = "explicit_group"
+                    parent = path.rsplit("/", 1)[0]
                     while parent:
-                        nodes.setdefault(parent, 'implicit_group')
-                        parent = parent.rsplit('/', 1)[0]
-                    nodes.setdefault('/', 'implicit_group')
+                        nodes.setdefault(parent, "implicit_group")
+                        parent = parent.rsplit("/", 1)[0]
+                    nodes.setdefault("/", "implicit_group")
 
         # sort by path for readability
         items = sorted(nodes.items())
@@ -426,31 +453,31 @@ class Hierarchy(Mapping):
 
         return nodes
 
-    def get_children(self, path: str = '/') -> Dict[str, str]:
+    def get_children(self, path: str = "/") -> Dict[str, str]:
         path = _check_path(path)
         children = dict()
         
         # attempt to list directory
-        if path == '/':
-            key_prefix = 'meta/root/'
+        if path == "/":
+            key_prefix = "meta/root/"
         else:
-            key_prefix = f'meta/root{path}/'
+            key_prefix = f"meta/root{path}/"
         result = self.store.list_dir(key_prefix)
         
         # find explicit children
         for n in result.contents:
-            if n.endswith('.array'):
-                node_type = 'array'
-                name = n[:-len('.array')]
+            if n.endswith(self.array_suffix):
+                node_type = "array"
+                name = n[:-len(self.array_suffix)]
                 children[name] = node_type
-            elif n.endswith('.group'):
-                node_type = 'explicit_group'
-                name = n[:-len('.group')]
+            elif n.endswith(self.group_suffix):
+                node_type = "explicit_group"
+                name = n[:-len(self.group_suffix)]
                 children[name] = node_type
 
         # find implicit children
         for name in result.prefixes:
-            children.setdefault(name, 'implicit_group')
+            children.setdefault(name, "implicit_group")
 
         # sort by path for readability
         items = sorted(children.items())
@@ -474,7 +501,7 @@ class Node:
 
     @property
     def name(self) -> str:
-        return self.path.split('/')[-1]
+        return self.path.split("/")[-1]
 
 
 class Group(Node, Mapping):
@@ -493,15 +520,15 @@ class Group(Node, Mapping):
 
     def _dereference_path(self, path: str) -> str:
         assert isinstance(path, str)
-        if path[0] != '/':
+        if path[0] != "/":
             # treat as relative path
-            if self.path == '/':
+            if self.path == "/":
                 # special case root group
-                path = f'/{path}'
+                path = f"/{path}"
             else:
-                path = f'{self.path}/{path}'
+                path = f"{self.path}/{path}"
         if len(path) > 1:
-            assert path[-1] != '/'
+            assert path[-1] != "/"
         return path
 
     def __getitem__(self, path: str) -> Node:
@@ -537,7 +564,7 @@ class ExplicitGroup(Group):
 
     def __repr__(self) -> str:
         path = self.path
-        return f'<Group {path}>'
+        return f"<Group {path}>"
 
 
 class ImplicitGroup(Group):
@@ -547,7 +574,7 @@ class ImplicitGroup(Group):
 
     def __repr__(self) -> str:
         path = self.path
-        return f'<Group {path} (implied)>'
+        return f"<Group {path} (implied)>"
 
 
 class Array(Node):
@@ -586,7 +613,7 @@ class Array(Node):
     def _get_selection(self, indexer):
 
         # setup output array
-        out = np.zeros(indexer.shape, dtype=self.dtype, order='C')
+        out = np.zeros(indexer.shape, dtype=self.dtype, order="C")
 
         # iterate over chunks
         for chunk_coords, chunk_selection, out_selection in indexer:
@@ -624,8 +651,8 @@ class Array(Node):
             out[out_selection] = tmp
 
     def _chunk_key(self, chunk_coords):
-        chunk_identifier = 'c' + self.chunk_separator.join(map(str, chunk_coords))
-        chunk_key = f'data/root{self.path}/{chunk_identifier}'
+        chunk_identifier = "c" + self.chunk_separator.join(map(str, chunk_coords))
+        chunk_key = f"data/root{self.path}/{chunk_identifier}"
         return chunk_key
 
     def _decode_chunk(self, encoded_data):
@@ -641,8 +668,8 @@ class Array(Node):
         chunk = chunk.view(self.dtype)
 
         # ensure correct chunk shape
-        chunk = chunk.reshape(-1, order='A')
-        chunk = chunk.reshape(self.chunk_shape, order='C')
+        chunk = chunk.reshape(-1, order="A")
+        chunk = chunk.reshape(self.chunk_shape, order="C")
 
         return chunk
 
@@ -673,7 +700,7 @@ class Array(Node):
             # setting a scalar value
             pass
         else:
-            if not hasattr(value, 'shape'):
+            if not hasattr(value, "shape"):
                 value = np.asarray(value, self.dtype)
             assert value.shape == sel_shape
 
@@ -705,13 +732,13 @@ class Array(Node):
             if np.isscalar(value):
 
                 # setup array filled with value
-                chunk = np.empty(self.chunk_shape, dtype=self.dtype, order='C')
+                chunk = np.empty(self.chunk_shape, dtype=self.dtype, order="C")
                 chunk.fill(value)
 
             else:
 
                 # ensure array is contiguous
-                chunk = value.astype(self.dtype, order='C', copy=False)
+                chunk = value.astype(self.dtype, order="C", copy=False)
 
         else:
             # partially replace the contents of this chunk
@@ -725,19 +752,19 @@ class Array(Node):
 
                 # chunk not initialized
                 if self.fill_value is not None:
-                    chunk = np.empty(self.chunk_shape, dtype=self.dtype, order='C')
+                    chunk = np.empty(self.chunk_shape, dtype=self.dtype, order="C")
                     chunk.fill(self.fill_value)
                 else:
                     # N.B., use zeros here so any region beyond the array has consistent
                     # and compressible data
-                    chunk = np.zeros(self.chunk_shape, dtype=self.dtype, order='C')
+                    chunk = np.zeros(self.chunk_shape, dtype=self.dtype, order="C")
 
             else:
 
                 # decode chunk
                 chunk = self._decode_chunk(encoded_chunk_data)
                 if not chunk.flags.writeable:
-                    chunk = chunk.copy(order='K')
+                    chunk = chunk.copy(order="K")
 
             # modify
             chunk[chunk_selection] = value
@@ -760,7 +787,7 @@ class Array(Node):
 
     def __repr__(self):
         path = self.path
-        return f'<Array {path}>'
+        return f"<Array {path}>"
 
 
 def _is_total_slice(item, shape):
@@ -784,7 +811,7 @@ def _is_total_slice(item, shape):
             for s, l in zip(item, shape)
         )
     else:
-        raise TypeError('expected slice or tuple of slices, found %r' % item)
+        raise TypeError("expected slice or tuple of slices, found %r" % item)
 
 
 def _ensure_tuple(v):
@@ -794,17 +821,17 @@ def _ensure_tuple(v):
 
 
 def _err_too_many_indices(selection, shape):
-    raise IndexError('too many indices for array; expected {}, got {}'
+    raise IndexError("too many indices for array; expected {}, got {}"
                      .format(len(shape), len(selection)))
 
 
 def _err_boundscheck(dim_len):
-    raise IndexError('index out of bounds for dimension with length {}'
+    raise IndexError("index out of bounds for dimension with length {}"
                      .format(dim_len))
 
 
 def _err_negative_step():
-    raise IndexError('only slices with step >= 1 are supported')
+    raise IndexError("only slices with step >= 1 are supported")
 
 
 def _check_selection_length(selection, shape):
@@ -982,8 +1009,8 @@ class _BasicIndexer(object):
                 dim_indexer = _SliceDimIndexer(dim_sel, dim_len, dim_chunk_len)
 
             else:
-                raise IndexError('unsupported selection item for basic indexing; '
-                                 'expected integer or slice, got {!r}'
+                raise IndexError("unsupported selection item for basic indexing; "
+                                 "expected integer or slice, got {!r}"
                                  .format(type(dim_sel)))
 
             dim_indexers.append(dim_indexer)
@@ -1025,7 +1052,7 @@ class Store(MutableMapping):
     def __len__(self) -> int:
         return sum(1 for _ in self)
 
-    def list_pre(self, prefix: str) -> List[str]:
+    def list_prefix(self, prefix: str) -> List[str]:
         raise NotImplementedError
 
     def list_dir(self, prefix: str) -> ListDirResult:
@@ -1044,11 +1071,11 @@ class FileSystemStore(Store):
         # instantiate file system
         fs, root = fsspec.core.url_to_fs(url, **storage_options)
         self.fs = fs
-        self.root = root.rstrip('/')
+        self.root = root.rstrip("/")
 
     def __getitem__(self, key: str, default: Optional[bytes] = None) -> bytes:
         assert isinstance(key, str)
-        path = f'{self.root}/{key}'
+        path = f"{self.root}/{key}"
 
         try:
             value = self.fs.cat(path)
@@ -1061,14 +1088,14 @@ class FileSystemStore(Store):
 
     def __setitem__(self, key: str, value: bytes) -> None:
         assert isinstance(key, str)
-        path = f'{self.root}/{key}'
+        path = f"{self.root}/{key}"
 
         # ensure parent folder exists
         # noinspection PyProtectedMember
         self.fs.mkdirs(self.fs._parent(path), exist_ok=True)
 
         # write data
-        with self.fs.open(path, 'wb') as f:
+        with self.fs.open(path, "wb") as f:
             f.write(value)
 
     def __delitem__(self, key: str) -> None:
@@ -1078,26 +1105,29 @@ class FileSystemStore(Store):
 
     def __iter__(self) -> Iterator[str]:
         for item in self.fs.find(self.root, withdirs=False, detail=False):
-            yield item.split(self.root + '/')[1]
+            yield item.split(self.root + "/")[1]
 
-    def list_pre(self, prefix: str) -> List[str]:
+    def list_prefix(self, prefix: str) -> List[str]:
         assert isinstance(prefix, str)
-        path = f'{self.root}/{prefix}'
+        assert prefix[-1] == "/"
+        path = f"{self.root}/{prefix}"
         try:
             items = self.fs.find(path, withdirs=False, detail=False)
         except FileNotFoundError:
             return []
         return [item.split(path)[1] for item in items]
 
-    def list_dir(self, prefix: str = '') -> ListDirResult:
+    def list_dir(self, prefix: str = "") -> ListDirResult:
         assert isinstance(prefix, str)
+        if prefix:
+            assert prefix[-1] == "/"
 
         # setup result
         contents: List[str] = []
         prefixes: List[str] = []
 
         # attempt to list directory
-        path = f'{self.root}/{prefix}'
+        path = f"{self.root}/{prefix}"
         try:
             ls = self.fs.ls(path, detail=True)
         except FileNotFoundError:
@@ -1105,10 +1135,10 @@ class FileSystemStore(Store):
 
         # build result
         for item in ls:
-            name = item['name'].split(path)[1]
-            if item['type'] == 'file':
+            name = item["name"].split(path)[1]
+            if item["type"] == "file":
                 contents.append(name)
-            elif item['type'] == 'directory':
+            elif item["type"] == "directory":
                 prefixes.append(name)
 
         return ListDirResult(contents=contents, prefixes=prefixes)
@@ -1117,4 +1147,4 @@ class FileSystemStore(Store):
         protocol = self.fs.protocol
         if isinstance(protocol, tuple):
             protocol = protocol[-1]
-        return f'{protocol}://{self.root}'
+        return f"{protocol}://{self.root}"
