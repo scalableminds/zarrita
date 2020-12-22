@@ -587,7 +587,7 @@ array([1., 1., 1., 1., 1., 0., 0., 0., 0., 0.], dtype=float16)
 ## Invalid node names
 
 ```python
->>> bad_paths = '', '//', '/foo//bar', ' ', '.', '/../', '/foo/./bar', '/foo/../bar', '/ ', 'Καλημέρα'
+>>> bad_paths = '', '//', '/foo//bar', ' ', '.', '/../', '/foo/./bar', '/foo/../bar', '/ ', 'Καλημέρα', 'a' * 256
 >>> for p in bad_paths:
 ...     try:
 ...         h.create_group(p)
