@@ -4,6 +4,7 @@ import json
 import numbers
 import itertools
 import math
+import re
 from collections.abc import Mapping, MutableMapping
 from typing import Iterator, Union, Optional, Tuple, Any, List, Dict, NamedTuple
 
@@ -105,7 +106,7 @@ def get_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
     return hierarchy
 
 
-ALLOWED_NODE_NAME_CHARS = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ._-"
+ALLOWED_NODE_NAME_REGEX = re.compile(r"^\.*[\w\-][\w\-\.]*$", flags=re.ASCII)
 
 
 def _check_path(path: str) -> str:
@@ -118,12 +119,9 @@ def _check_path(path: str) -> str:
     if len(path) > 1:
         segments = path[1:].split("/")
         for segment in segments:
-            if len(segment) == 0:
+            if len(segment) == 0 or len(segment) > 255:
                 raise ValueError
-            for c in segment:
-                if c not in ALLOWED_NODE_NAME_CHARS:
-                    raise ValueError
-            if all([c == "." for c in segment]):
+            if not ALLOWED_NODE_NAME_REGEX.match(segment):
                 raise ValueError
     return path
 
