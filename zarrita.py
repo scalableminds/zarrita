@@ -106,7 +106,7 @@ def get_hierarchy(store: Union[str, Store], **storage_options) -> Hierarchy:
     return hierarchy
 
 
-ALLOWED_NODE_NAME_REGEX = re.compile(r"^\.*[\w\-][\w\-\.]*$", flag=re.ASCII)
+ALLOWED_NODE_NAME_REGEX = re.compile(r"^\.*[\w\-][\w\-\.]*$", flags=re.ASCII)
 
 
 def _check_path(path: str) -> str:
