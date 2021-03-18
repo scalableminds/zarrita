@@ -145,7 +145,7 @@ def _check_dtype(dtype: Any) -> np.dtype:
     if not isinstance(dtype, np.dtype):
         dtype = np.dtype(dtype)
     assert dtype.str in {
-        "|b1", "i1", "u1",
+        "|b1", "|i1", "|u1",
         "<i2", "<i4", "<i8",
         ">i2", ">i4", ">i8",
         "<u2", "<u4", "<u8",
@@ -252,7 +252,7 @@ class Hierarchy(Mapping):
         self.store[meta_key] = meta_doc
 
         # instantiate group
-        group = ExplicitGroup(store=self.store, path=path, owner=self, 
+        group = ExplicitGroup(store=self.store, path=path, owner=self,
                               attrs=attrs)
 
         return group
@@ -276,10 +276,10 @@ class Hierarchy(Mapping):
         attrs = _check_attrs(attrs)
 
         # encode data type
-        if dtype == np.bool:
+        if dtype == np.bool_:
             data_type = "bool"
         else:
-            data_type = dtype.str
+            data_type = dtype.str.strip('|')
 
         # create array metadata
         meta: Dict[str, Any] = dict(
@@ -454,14 +454,14 @@ class Hierarchy(Mapping):
     def get_children(self, path: str = "/") -> Dict[str, str]:
         path = _check_path(path)
         children = dict()
-        
+
         # attempt to list directory
         if path == "/":
             key_prefix = "meta/root/"
         else:
             key_prefix = f"meta/root{path}/"
         result = self.store.list_dir(key_prefix)
-        
+
         # find explicit children
         for n in result.contents:
             if n.endswith(self.array_suffix):
@@ -540,7 +540,7 @@ class Group(Node, Mapping):
     def create_array(self, path: str, **kwargs) -> Array:
         path = self._dereference_path(path)
         return self.owner.create_array(path=path, **kwargs)
-    
+
     def get_array(self, path: str) -> Array:
         path = self._dereference_path(path)
         return self.owner.get_array(path=path)
