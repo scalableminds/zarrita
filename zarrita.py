@@ -171,21 +171,16 @@ def _check_compressor(compressor: Optional[Codec]) -> None:
     assert compressor is None or isinstance(compressor, Codec)
 
 
-def _check_shard_format(shard_format: str) -> None:
-    assert shard_format in SHARDED_STORES, (
-        f"Shard format {shard_format} is not supported, "
+def _check_sharding(sharding: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    if sharding is None:
+        return None
+    if "format" not in sharding:
+        sharding["format"] = "indexed"
+    assert sharding["format"] in SHARDED_STORES, (
+        f"Shard format {sharding['format']} is not supported, "
         + f"use one of {list(SHARDED_STORES)}"
     )
-
-
-def _check_shards(shards: Union[int, Tuple[int, ...], None]) -> Optional[Tuple[int, ...]]:
-    if shards is None:
-        return None
-    assert isinstance(shards, (int, tuple))
-    if isinstance(shards, int):
-        shards = shards,
-    assert all([isinstance(s, int) for s in shards])
-    return shards
+    return sharding
 
 
 def _encode_codec_metadata(codec: Codec) -> Optional[Mapping]:
@@ -284,8 +279,7 @@ class Hierarchy(Mapping):
                      compressor: Optional[Codec] = None,
                      fill_value: Any = None,
                      attrs: Optional[Mapping] = None,
-                     shard_format: str = "indexed",
-                     shards: Union[int, Tuple[int, ...], None] = None) -> Array:
+                     sharding: Optional[Dict[str, Any]] = None) -> Array:
 
         # sanity checks
         path = _check_path(path)
@@ -294,8 +288,7 @@ class Hierarchy(Mapping):
         chunk_shape = _check_chunk_shape(chunk_shape, shape)
         _check_compressor(compressor)
         attrs = _check_attrs(attrs)
-        _check_shard_format(shard_format)
-        shards = _check_shards(shards)
+        sharding = _check_sharding(sharding)
 
         # encode data type
         if dtype == np.bool_:
@@ -319,9 +312,8 @@ class Hierarchy(Mapping):
         )
         if compressor is not None:
             meta["compressor"] = _encode_codec_metadata(compressor)
-        if shards is not None:
-            meta["shards"] = shards
-            meta["shard_format"] = shard_format
+        if sharding is not None:
+            meta["sharding"] = sharding
 
         # serialise and store metadata document
         meta_doc = _json_encode_object(meta)
@@ -333,7 +325,7 @@ class Hierarchy(Mapping):
                       shape=shape, dtype=dtype, chunk_shape=chunk_shape,
                       chunk_separator=chunk_separator, compressor=compressor,
                       fill_value=fill_value, attrs=attrs,
-                      shard_format=shard_format, shards=shards)
+                      sharding=sharding)
 
         return array
 
@@ -367,17 +359,13 @@ class Hierarchy(Mapping):
             if spec["must_understand"]:
                 raise NotImplementedError(spec)
         attrs = meta["attributes"]
-        shards = meta.get("shards", None)
-        if shards is not None:
-            shards = tuple(shards)
-        shard_format = meta.get("shard_format", "indexed")
+        sharding = meta.get("sharding", None)
 
         # instantiate array
         a = Array(store=self.store, path=path, owner=self, shape=shape,
                   dtype=dtype, chunk_shape=chunk_shape,
                   chunk_separator=chunk_separator, compressor=compressor,
-                  fill_value=fill_value, attrs=attrs,
-                  shard_format=shard_format, shards=shards)
+                  fill_value=fill_value, attrs=attrs, sharding=sharding)
 
         return a
 
@@ -619,14 +607,13 @@ class Array(Node):
                  compressor: Optional[Codec],
                  fill_value: Any = None,
                  attrs: Optional[Mapping] = None,
-                 shard_format: str = "indexed",
-                 shards: Optional[Tuple[int, ...]] = None,
+                 sharding: Optional[Dict[str, Any]] = None,
                  ):
-        if shards is not None:
-            store = SHARDED_STORES[shard_format](  # type: ignore
+        if sharding is not None:
+            store = SHARDED_STORES[sharding["format"]](  # type: ignore
                 store=store,
-                shards=shards,
                 chunk_separator=chunk_separator,
+                **sharding,
             )
         super().__init__(store=store, path=path, owner=owner)
         self.shape = shape
@@ -1197,10 +1184,10 @@ def _is_data_key(key: str) -> bool:
 
 class _ShardIndex(NamedTuple):
     store: "IndexedShardedStore"
-    offsets_and_lengths: np.ndarray  # dtype uint64, shape (shards_0, _shards_1, ..., 2)
+    offsets_and_lengths: np.ndarray  # dtype uint64, shape (chunks_per_shard_0, chunks_per_shard_1, ..., 2)
 
     def __localize_chunk__(self, chunk: Tuple[int, ...]) -> Tuple[int, ...]:
-        return tuple(chunk_i % shard_i for chunk_i, shard_i in zip(chunk, self.store._shards))
+        return tuple(chunk_i % shard_i for chunk_i, shard_i in zip(chunk, self.store._chunks_per_shard))
 
     def get_chunk_slice(self, chunk: Tuple[int, ...]) -> Optional[slice]:
         localized_chunk = self.__localize_chunk__(chunk)
@@ -1231,7 +1218,7 @@ class _ShardIndex(NamedTuple):
             store=store,
             offsets_and_lengths=np.frombuffer(
                 bytearray(buffer), dtype="<u8"
-            ).reshape(*store._shards, 2, order="C")
+            ).reshape(*store._chunks_per_shard, 2, order="C")
         )
 
     @classmethod
@@ -1250,44 +1237,46 @@ class IndexedShardedStore(Store):
     def __init__(
         self,
         store: Store,
-        shards: Tuple[int, ...],
         chunk_separator: str,
+        chunks_per_shard: Iterable[int],
+        **kwargs: Any,
     ) -> None:
         self._store = store
-        self._shards = shards
-        self._num_chunks_per_shard = functools.reduce(lambda x, y: x*y, shards, 1)
+        self._num_chunks_per_shard = functools.reduce(lambda x, y: x*y, chunks_per_shard, 1)
         self._chunk_separator = chunk_separator
+        assert all(isinstance(s, int) for s in chunks_per_shard)
+        self._chunks_per_shard = tuple(chunks_per_shard)
 
-    def __key_to_shard__(
+    def _key_to_shard(
         self, chunk_key: str
     ) -> Tuple[str, Tuple[int, ...]]:
         prefix, _, chunk_string = chunk_key.rpartition("c")
         chunk_subkeys = tuple(map(int, chunk_string.split(self._chunk_separator)))
         shard_key_tuple = (
-            subkey // shard_i for subkey, shard_i in zip(chunk_subkeys, self._shards)
+            subkey // shard_i for subkey, shard_i in zip(chunk_subkeys, self._chunks_per_shard)
         )
         shard_key = prefix + "c" + self._chunk_separator.join(map(str, shard_key_tuple))
         return shard_key, chunk_subkeys
 
-    def __get_index__(self, buffer: Union[bytes, bytearray]) -> _ShardIndex:
+    def _get_index(self, buffer: Union[bytes, bytearray]) -> _ShardIndex:
         # At the end of each shard 2*64bit per chunk for offset and length define the index:
         return _ShardIndex.from_bytes(buffer[-16 * self._num_chunks_per_shard:], self)
 
-    def __get_chunks_in_shard(self, shard_key: str) -> Iterator[Tuple[int, ...]]:
+    def _get_chunks_in_shard(self, shard_key: str) -> Iterator[Tuple[int, ...]]:
         _, _, chunk_string = shard_key.rpartition("c")
         shard_key_tuple = tuple(map(int, chunk_string.split(self._chunk_separator)))
-        for chunk_offset in itertools.product(*(range(i) for i in self._shards)):
+        for chunk_offset in itertools.product(*(range(i) for i in self._chunks_per_shard)):
             yield tuple(
                 shard_key_i * shards_i + offset_i
                 for shard_key_i, offset_i, shards_i
-                in zip(shard_key_tuple, chunk_offset, self._shards)
+                in zip(shard_key_tuple, chunk_offset, self._chunks_per_shard)
             )
 
     def __getitem__(self, key: str, default: Optional[bytes] = None) -> bytes:
         if _is_data_key(key):
-            shard_key, chunk_subkeys = self.__key_to_shard__(key)
+            shard_key, chunk_subkeys = self._key_to_shard(key)
             full_shard_value = self._store[shard_key]
-            index = self.__get_index__(full_shard_value)
+            index = self._get_index(full_shard_value)
             chunk_slice = index.get_chunk_slice(chunk_subkeys)
             if chunk_slice is not None:
                 return full_shard_value[chunk_slice]
@@ -1300,8 +1289,8 @@ class IndexedShardedStore(Store):
 
     def __setitem__(self, key: str, value: bytes) -> None:
         if _is_data_key(key):
-            shard_key, chunk_subkeys = self.__key_to_shard__(key)
-            chunks_to_read = set(self.__get_chunks_in_shard(shard_key))
+            shard_key, chunk_subkeys = self._key_to_shard(key)
+            chunks_to_read = set(self._get_chunks_in_shard(shard_key))
             chunks_to_read.remove(chunk_subkeys)
             new_content = {chunk_subkeys: value}
             try:
@@ -1309,7 +1298,7 @@ class IndexedShardedStore(Store):
             except KeyError:
                 index = _ShardIndex.create_empty(self)
             else:
-                index = self.__get_index__(full_shard_value)
+                index = self._get_index(full_shard_value)
                 for chunk_to_read in chunks_to_read:
                     chunk_slice = index.get_chunk_slice(chunk_to_read)
                     if chunk_slice is not None:
@@ -1326,20 +1315,20 @@ class IndexedShardedStore(Store):
         else:
             self._store[key] = value
 
-    def __shard_key_to_original_keys__(self, key: str) -> Iterator[str]:
+    def _shard_key_to_original_keys(self, key: str) -> Iterator[str]:
         if not _is_data_key(key):
             # Special keys such as meta-keys are passed on as-is
             yield key
         else:
-            index = self.__get_index__(self._store[key])
+            index = self._get_index(self._store[key])
             prefix, _, _ = key.rpartition("c")
-            for chunk_tuple in self.__get_chunks_in_shard(key):
+            for chunk_tuple in self._get_chunks_in_shard(key):
                 if index.get_chunk_slice(chunk_tuple) is not None:
                     yield prefix + "c" + self._chunk_separator.join(map(str, chunk_tuple))
 
     def __iter__(self) -> Iterator[str]:
         for key in self._store:
-            yield from self.__shard_key_to_original_keys__(key)
+            yield from self._shard_key_to_original_keys(key)
 
     def list_prefix(self, prefix: str) -> List[str]:
         if _is_data_key(prefix):

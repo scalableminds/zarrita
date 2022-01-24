@@ -12,7 +12,7 @@ a = h.create_array(
     shape=(20, 3),
     dtype="float64",
     chunk_shape=(3, 2),
-    shards=(2, 2),
+    sharding={"chunks_per_shard": (2, 2)},
 )
 
 a[:10, :] = 42
@@ -20,7 +20,7 @@ a[15, 1] = 389
 a[19, 2] = 1
 a[0, 1] = -4.2
 
-assert a.store._shards == (2, 2)
+assert a.store._chunks_per_shard == (2, 2)
 assert a[15, 1] == 389
 assert a[19, 2] == 1
 assert a[0, 1] == -4.2
@@ -47,14 +47,16 @@ print(array_json)
 #     "fill_value": null,
 #     "extensions": [],
 #     "attributes": {},
-#     "shards": [
-#         2,
-#         2
-#     ],
-#     "shard_format": "indexed"
+#     "sharding": {
+#         "chunks_per_shard": [
+#             2,
+#             2
+#         ],
+#         "format": "indexed"
+#     }
 # }
 
-assert json.loads(array_json)["shards"] == [2, 2]
+assert json.loads(array_json)["sharding"]["chunks_per_shard"] == [2, 2]
 
 print("ONDISK")
 for root, dirs, files in os.walk("sharding_test.zr3"):
@@ -79,7 +81,7 @@ print("INDEX 0.0", [int.from_bytes(index_bytes[i:i+8], byteorder="little") for i
 
 
 a_reopened = zarrita.get_hierarchy("sharding_test.zr3").get_array("testarray")
-assert a_reopened.store._shards == (2, 2)
+assert a_reopened.store._chunks_per_shard == (2, 2)
 assert a_reopened[15, 1] == 389
 assert a_reopened[19, 2] == 1
 assert a_reopened[0, 1] == -4.2
