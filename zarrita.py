@@ -1084,10 +1084,6 @@ class Store(MutableMapping):
     def __delitem__(self, key: str) -> None:
         raise NotImplementedError
 
-    def delitems(self, keys: Iterable[str]) -> None:
-        for key in keys:
-            del self[key]
-
     def __iter__(self) -> Iterator[str]:
         raise NotImplementedError
 
@@ -1329,9 +1325,6 @@ class IndexedShardedStore(Store):
             self._store[shard_key] = shard_content
         else:
             self._store[key] = value
-
-    def delitems(self, keys: Iterable[str]) -> None:
-        raise NotImplementedError
 
     def __shard_key_to_original_keys__(self, key: str) -> Iterator[str]:
         if not _is_data_key(key):
