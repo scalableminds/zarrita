@@ -6,7 +6,6 @@ import itertools
 import functools
 import math
 import re
-from collections import defaultdict
 from collections.abc import Mapping, MutableMapping
 from typing import Iterator, Union, Optional, Tuple, Any, List, Dict, NamedTuple, Iterable, Type
 
@@ -654,32 +653,40 @@ class Array(Node):
         # setup output array
         out = np.zeros(indexer.shape, dtype=self.dtype, order="C")
 
-        chunk_keys = {chunk_coords: self._chunk_key(chunk_coords) for chunk_coords, _, _ in indexer}
-        encoded_chunk_data = self.store.getitems(chunk_keys.values())
-
-        # load chunk selection into output array
+        # iterate over chunks
         for chunk_coords, chunk_selection, out_selection in indexer:
-            chunk_key = chunk_keys[chunk_coords]
-            if chunk_key in encoded_chunk_data:
-                encoded_chunk_data = encoded_chunk_data[chunk_key]
-                # decode chunk
-                chunk = self._decode_chunk(encoded_chunk_data)
 
-                # select data from chunk
-                tmp = chunk[chunk_selection]
-
-                # store selected data in output
-                out[out_selection] = tmp
-
-            else:
-                # chunk not initialized, maybe fill
-                if self.fill_value is not None:
-                    out[out_selection] = self.fill_value
+            # load chunk selection into output array
+            self._chunk_getitem(chunk_coords, chunk_selection, out, out_selection)
 
         if out.shape:
             return out
         else:
             return out[()]
+
+    def _chunk_getitem(self, chunk_coords, chunk_selection, out, out_selection):
+
+        # obtain key for chunk
+        chunk_key = self._chunk_key(chunk_coords)
+
+        try:
+            # obtain encoded data for chunk
+            encoded_chunk_data = self.store[chunk_key]
+
+        except KeyError:
+            # chunk not initialized, maybe fill
+            if self.fill_value is not None:
+                out[out_selection] = self.fill_value
+
+        else:
+            # decode chunk
+            chunk = self._decode_chunk(encoded_chunk_data)
+
+            # select data from chunk
+            tmp = chunk[chunk_selection]
+
+            # store selected data in output
+            out[out_selection] = tmp
 
     def _chunk_key(self, chunk_coords):
         chunk_identifier = "c" + self.chunk_separator.join(map(str, chunk_coords))
@@ -736,7 +743,6 @@ class Array(Node):
             assert value.shape == sel_shape
 
         # iterate over chunks in range
-        tmp_result = {}
         for chunk_coords, chunk_selection, out_selection in indexer:
 
             # extract data to store
@@ -748,10 +754,9 @@ class Array(Node):
                 chunk_value = value[out_selection]
 
             # put data
-            self._chunk_setitem(chunk_coords, chunk_selection, chunk_value, tmp_result)
-        self.store.setitems(tmp_result)
+            self._chunk_setitem(chunk_coords, chunk_selection, chunk_value)
 
-    def _chunk_setitem(self, chunk_coords, chunk_selection, value, tmp_result):
+    def _chunk_setitem(self, chunk_coords, chunk_selection, value):
 
         # obtain key for chunk storage
         chunk_key = self._chunk_key(chunk_coords)
@@ -779,7 +784,6 @@ class Array(Node):
             try:
 
                 # obtain compressed data for chunk
-                # this might be optimized to use getitems
                 encoded_chunk_data = self.store[chunk_key]
 
             except KeyError:
@@ -807,7 +811,7 @@ class Array(Node):
         encoded_chunk_data = self._encode_chunk(chunk)
 
         # store
-        tmp_result[chunk_key] = encoded_chunk_data.tobytes()
+        self.store[chunk_key] = encoded_chunk_data.tobytes()
 
     def _encode_chunk(self, chunk):
 
@@ -1074,21 +1078,8 @@ class Store(MutableMapping):
     def __getitem__(self, key: str, default: Optional[bytes] = None) -> bytes:
         raise NotImplementedError
 
-    def getitems(self, keys: Iterable[str]) -> Dict[str, bytes]:
-        result = {}
-        for key in keys:
-            try:
-                result[key] = self[key]
-            except KeyError:
-                pass
-        return result
-
     def __setitem__(self, key: str, value: bytes) -> None:
         raise NotImplementedError
-
-    def setitems(self, values: Dict[str, bytes]) -> None:
-        for key, value in values.items():
-            self[key] = value
 
     def __delitem__(self, key: str) -> None:
         raise NotImplementedError
@@ -1107,32 +1098,6 @@ class Store(MutableMapping):
         raise NotImplementedError
 
     def list_dir(self, prefix: str) -> ListDirResult:
-        raise NotImplementedError
-
-
-class MultiStore(Store):
-    # Stores that can optimize reads and writes of multiple keys
-    # should inherit from MultiStore
-
-    def __getitem__(self, key: str, default: Optional[bytes] = None) -> bytes:
-        result = self.getitems([key]).get(key, default)
-        if result is None:
-            raise KeyError(key)
-        return result
-
-    def getitems(self, keys: Iterable[str]) -> Dict[str, bytes]:
-        raise NotImplementedError
-
-    def __setitem__(self, key: str, value: bytes) -> None:
-        self.setitems({key: value})
-
-    def setitems(self, values: Dict[str, bytes]) -> None:
-        raise NotImplementedError
-
-    def __delitem__(self, key: str) -> None:
-        self.delitems([key])
-
-    def delitems(self, keys: Iterable[str]) -> None:
         raise NotImplementedError
 
 
@@ -1230,13 +1195,6 @@ class FileSystemStore(Store):
 MAX_UINT_64 = 2 ** 64 - 1
 
 
-def _partition(pred, iterable):
-    'Use a predicate to partition entries into false entries and true entries'
-    # partition(is_odd, range(10)) --> 0 2 4 6 8   and  1 3 5 7 9
-    t1, t2 = itertools.tee(iterable)
-    return itertools.filterfalse(pred, t1), filter(pred, t2)
-
-
 def _is_data_key(key: str) -> bool:
     return key.startswith("data/root")
 
@@ -1289,7 +1247,7 @@ class _ShardIndex(NamedTuple):
         )
 
 
-class IndexedShardedStore(MultiStore):
+class IndexedShardedStore(Store):
     """This class should not be used directly,
     but is added to an Array as a wrapper when needed automatically."""
 
@@ -1304,19 +1262,16 @@ class IndexedShardedStore(MultiStore):
         self._num_chunks_per_shard = functools.reduce(lambda x, y: x*y, shards, 1)
         self._chunk_separator = chunk_separator
 
-    def __keys_to_shard_groups__(
-        self, keys: Iterable[str]
-    ) -> Dict[str, List[Tuple[str, Tuple[int, ...]]]]:
-        shard_indices_per_shard_key = defaultdict(list)
-        for chunk_key in keys:
-            prefix, _, chunk_string = chunk_key.rpartition("c")
-            chunk_subkeys = tuple(map(int, chunk_string.split(self._chunk_separator)))
-            shard_key_tuple = (
-                subkey // shard_i for subkey, shard_i in zip(chunk_subkeys, self._shards)
-            )
-            shard_key = prefix + "c" + self._chunk_separator.join(map(str, shard_key_tuple))
-            shard_indices_per_shard_key[shard_key].append((chunk_key, chunk_subkeys))
-        return shard_indices_per_shard_key
+    def __key_to_shard__(
+        self, chunk_key: str
+    ) -> Tuple[str, Tuple[int, ...]]:
+        prefix, _, chunk_string = chunk_key.rpartition("c")
+        chunk_subkeys = tuple(map(int, chunk_string.split(self._chunk_separator)))
+        shard_key_tuple = (
+            subkey // shard_i for subkey, shard_i in zip(chunk_subkeys, self._shards)
+        )
+        shard_key = prefix + "c" + self._chunk_separator.join(map(str, shard_key_tuple))
+        return shard_key, chunk_subkeys
 
     def __get_index__(self, buffer: Union[bytes, bytearray]) -> _ShardIndex:
         # At the end of each shard 2*64bit per chunk for offset and length define the index:
@@ -1332,33 +1287,29 @@ class IndexedShardedStore(MultiStore):
                 in zip(shard_key_tuple, chunk_offset, self._shards)
             )
 
-    def getitems(self, keys: Iterable[str]) -> Dict[str, bytes]:
-        other_keys, data_keys = _partition(_is_data_key, keys)
-        result = self._store.getitems(other_keys)
-
-        for shard_key, chunks_in_shard in self.__keys_to_shard_groups__(data_keys).items():
+    def __getitem__(self, key: str, default: Optional[bytes] = None) -> bytes:
+        if _is_data_key(key):
+            shard_key, chunk_subkeys = self.__key_to_shard__(key)
             full_shard_value = self._store[shard_key]
             index = self.__get_index__(full_shard_value)
-            for chunk_key, chunk_subkeys in chunks_in_shard:
-                chunk_slice = index.get_chunk_slice(chunk_subkeys)
-                if chunk_slice is not None:
-                    result[chunk_key] = full_shard_value[chunk_slice]
-        return result
+            chunk_slice = index.get_chunk_slice(chunk_subkeys)
+            if chunk_slice is not None:
+                return full_shard_value[chunk_slice]
+            else:
+                if default is not None:
+                    return default
+                raise KeyError(key)
+        else:
+            return self._store.__getitem__(key, default)
 
-    def setitems(self, values: Dict[str, bytes]) -> None:
-        other_keys, data_keys = _partition(_is_data_key, values.keys())
-        to_set = {key: values[key] for key in other_keys}
-        shard_groups = self.__keys_to_shard_groups__(data_keys)
-        full_shard_values = self._store.getitems(shard_groups.keys())
-        for shard_key, chunks_in_shard in shard_groups.items():
-            all_chunks = set(self.__get_chunks_in_shard(shard_key))
-            chunks_to_set = set(chunk_subkeys for _chunk_key, chunk_subkeys in chunks_in_shard)
-            chunks_to_read = all_chunks - chunks_to_set
-            new_content = {
-                chunk_subkeys: values[chunk_key] for chunk_key, chunk_subkeys in chunks_in_shard
-            }
+    def __setitem__(self, key: str, value: bytes) -> None:
+        if _is_data_key(key):
+            shard_key, chunk_subkeys = self.__key_to_shard__(key)
+            chunks_to_read = set(self.__get_chunks_in_shard(shard_key))
+            chunks_to_read.remove(chunk_subkeys)
+            new_content = {chunk_subkeys: value}
             try:
-                full_shard_value = full_shard_values[shard_key]
+                full_shard_value = self._store[shard_key]
             except KeyError:
                 index = _ShardIndex.create_empty(self)
             else:
@@ -1369,15 +1320,15 @@ class IndexedShardedStore(MultiStore):
                         new_content[chunk_to_read] = full_shard_value[chunk_slice]
 
             shard_content = b""
-            # TODO: order the chunks in the shard:
             for chunk_subkeys, chunk_content in new_content.items():
                 chunk_slice = slice(len(shard_content), len(shard_content) + len(chunk_content))
                 index.set_chunk_slice(chunk_subkeys, chunk_slice)
                 shard_content += chunk_content
             # Appending the index at the end of the shard:
             shard_content += index.to_bytes()
-            to_set[shard_key] = shard_content
-        self._store.setitems(to_set)
+            self._store[shard_key] = shard_content
+        else:
+            self._store[key] = value
 
     def delitems(self, keys: Iterable[str]) -> None:
         raise NotImplementedError
