@@ -16,7 +16,11 @@ from typing import (
 import numpy as np
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
-from numcodecs.compat import ensure_ndarray
+from numcodecs.compat import (
+    ensure_ndarray_like,
+    ensure_contiguous_ndarray_like,
+    is_ndarray_like,
+)
 
 from zarrita.indexing import _BasicIndexer
 from zarrita.sharding import (
@@ -116,13 +120,15 @@ class BloscCodecMetadata:
     name: Final = "blosc"
 
     def decode_chunk(
-        self, encoded_chunk: bytes, _chunk_shape: Optional[Tuple[int, ...]] = None
+        self, encoded_chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
     ) -> bytes:
         return Blosc.from_config(asdict(self.configuration)).decode(encoded_chunk)
 
     def encode_chunk(
-        self, chunk: bytes, _chunk_shape: Optional[Tuple[int, ...]] = None
+        self, chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
     ) -> bytes:
+        if not chunk.flags.c_contiguous and not chunk.flags.f_contiguous:
+            chunk = chunk.copy(order="K")
         return Blosc.from_config(asdict(self.configuration)).encode(chunk)
 
 
@@ -147,20 +153,28 @@ class EndianCodecMetadata:
             return sys.byteorder
 
     def decode_chunk(
-        self, encoded_chunk: np.ndarray, _chunk_shape: Optional[Tuple[int, ...]] = None
+        self,
+        encoded_chunk: np.ndarray,
+        _array_metadata: Optional["ArrayMetadata"] = None,
     ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray(encoded_chunk)
+        encoded_chunk = ensure_ndarray_like(encoded_chunk)
         byteorder = self._get_byteorder(encoded_chunk)
         if self.configuration.endian != byteorder:
-            return encoded_chunk.view(dtype=encoded_chunk.dtype.newbyteorder(byteorder))
+            encoded_chunk = encoded_chunk.view(
+                dtype=encoded_chunk.dtype.newbyteorder(byteorder)
+            )
+        return encoded_chunk
 
     def encode_chunk(
-        self, chunk: np.ndarray, _chunk_shape: Optional[Tuple[int, ...]] = None
+        self, chunk: np.ndarray, _array_metadata: Optional["ArrayMetadata"] = None
     ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray(chunk)
+        encoded_chunk = ensure_ndarray_like(chunk)
         byteorder = self._get_byteorder(encoded_chunk)
         if self.configuration.endian != byteorder:
-            return encoded_chunk.view(dtype=encoded_chunk.dtype.newbyteorder(byteorder))
+            encoded_chunk = encoded_chunk.view(
+                dtype=encoded_chunk.dtype.newbyteorder(byteorder)
+            )
+        return encoded_chunk
 
 
 @dataclass
@@ -174,23 +188,27 @@ class TransposeCodecMetadata:
     name: Final = "transpose"
 
     def decode_chunk(
-        self, encoded_chunk: np.ndarray, chunk_shape: Optional[Tuple[int, ...]] = None
+        self,
+        encoded_chunk: np.ndarray,
+        array_metadata: Optional["ArrayMetadata"] = None,
     ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray(encoded_chunk)
+        encoded_chunk = ensure_ndarray_like(encoded_chunk)
         assert self.configuration.order in ("C", "F")
         order = "C" if encoded_chunk.flags["C_CONTIGUOUS"] else "F"
-        print(order, self.configuration.order, encoded_chunk.shape)
         if self.configuration.order != order:
-            return encoded_chunk.reshape(chunk_shape, order=self.configuration.order)
+            encoded_chunk = encoded_chunk.view(array_metadata.dtype).reshape(
+                array_metadata.chunk_grid.configuration.chunk_shape,
+                order=self.configuration.order,
+            )
+        return encoded_chunk
 
     def encode_chunk(
-        self, chunk: np.ndarray, chunk_shape: Optional[Tuple[int, ...]] = None
+        self, chunk: np.ndarray, _array_metadata: Optional["ArrayMetadata"] = None
     ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray(chunk)
+        encoded_chunk = ensure_ndarray_like(chunk)
         assert self.configuration.order in ("C", "F")
-        order = "C" if encoded_chunk.flags["C_CONTIGUOUS"] else "F"
-        if self.configuration.order != order:
-            return encoded_chunk.reshape(chunk_shape, order=self.configuration.order)
+        encoded_chunk = encoded_chunk.reshape(-1, order=self.configuration.order)
+        return encoded_chunk
 
 
 @dataclass
@@ -204,12 +222,12 @@ class GzipCodecMetadata:
     name: Final = "gzip"
 
     def decode_chunk(
-        self, encoded_chunk: bytes, _chunk_shape: Optional[Tuple[int, ...]] = None
+        self, encoded_chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
     ) -> bytes:
         return GZip.from_config(self.configuration).decode(encoded_chunk)
 
     def encode_chunk(
-        self, chunk: bytes, _chunk_shape: Optional[Tuple[int, ...]] = None
+        self, chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
     ) -> bytes:
         return GZip.from_config(self.configuration).encode(chunk)
 
@@ -292,7 +310,7 @@ class Array:
                 )
             ),
             fill_value=fill_value,
-            codecs=codecs or [],
+            codecs=Array.ensure_codecs(codecs or []),
             storage_transformers=storage_transformers or [],
         )
         array = cls()
@@ -301,6 +319,24 @@ class Array:
         array.path = path
         array._save_metadata()
         return array
+
+    @staticmethod
+    def ensure_codecs(codecs: List[CodecMetadata]) -> List[CodecMetadata]:
+        if not any(codec.name == "endian" for codec in codecs):
+            codecs.insert(
+                0,
+                EndianCodecMetadata(
+                    configuration=EndianCodecConfigurationMetadata(endian="little")
+                ),
+            )
+        if not any(codec.name == "transpose" for codec in codecs):
+            codecs.insert(
+                0,
+                TransposeCodecMetadata(
+                    configuration=TransposeCodecConfigurationMetadata(order="C")
+                ),
+            )
+        return codecs
 
     @classmethod
     def open(cls, store: "Store", path: str) -> "Array":
@@ -332,9 +368,17 @@ class Array:
         )
         return self._get_selection(indexer=indexer)
 
+    def _get_order(self) -> Union[Literal["C"], Literal["F"]]:
+        for codec in self.metadata.codecs:
+            if codec.name == "transpose":
+                return codec.configuration.order
+        return "C"
+
     def _get_selection(self, indexer):
         # setup output array
-        out = np.zeros(indexer.shape, dtype=self.metadata.dtype, order="C")
+        out = np.zeros(
+            indexer.shape, dtype=self.metadata.dtype, order=self._get_order()
+        )
 
         storage_transformers: List["Store"] = [self.store]
 
@@ -381,12 +425,10 @@ class Array:
 
     def _decode_chunk(self, encoded_data):
         for codec_metadata in self.metadata.codecs[::-1]:
-            encoded_data = codec_metadata.decode_chunk(
-                encoded_data, self.metadata.chunk_grid.configuration.chunk_shape
-            )
+            encoded_data = codec_metadata.decode_chunk(encoded_data, self.metadata)
 
         # view as numpy array with correct dtype
-        chunk = ensure_ndarray(encoded_data)
+        chunk = ensure_ndarray_like(encoded_data)
         if str(chunk.dtype) != self.metadata.data_type.name:
             chunk = chunk.view(self.metadata.dtype)
 
@@ -464,7 +506,6 @@ class Array:
                 chunk_value.fill(value)
             else:
                 chunk_value = value[out_selection]
-            chunk_value = chunk_value.astype(self.metadata.dtype, order="C", copy=False)
             chunk_value = self._encode_chunk(chunk_value)
 
             chunk_values.append(chunk_value)
@@ -488,6 +529,9 @@ class Array:
             encoded_chunk_value = codec.encode_chunk(
                 encoded_chunk_value, self.metadata.chunk_grid.configuration.chunk_shape
             )
+
+        if is_ndarray_like(encoded_chunk_value) and encoded_chunk_value.ndim > 1:
+            encoded_chunk_value = encoded_chunk_value.reshape(-1)
         return encoded_chunk_value
 
     def __repr__(self):

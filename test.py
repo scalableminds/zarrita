@@ -23,6 +23,9 @@ def test_sharding():
             dtype=data.dtype,
             fill_value=0,
             codecs=[
+                zarrita.TransposeCodecMetadata(
+                    configuration=zarrita.TransposeCodecConfigurationMetadata(order="F")
+                ),
                 zarrita.BloscCodecMetadata(
                     configuration=zarrita.BloscCodecConfigurationMetadata()
                 ),
@@ -32,7 +35,7 @@ def test_sharding():
                     configuration=zarrita.ShardingStorageTransformerConfigurationMetadata(
                         chunks_per_shard=(16, 16, 16)
                     )
-                )
+                ),
             ],
         )
 
@@ -43,13 +46,13 @@ def test_sharding():
     copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
 
 
-def test_order():
-    data = np.arange(0, 256, dtype="uint8").reshape((16, 16), order="F")
+def test_order_F():
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="F")
 
     s = zarrita.FileSystemStore("file://./testdata")
     a = zarrita.Array.create(
         s,
-        "order",
+        "order_F",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
@@ -62,7 +65,52 @@ def test_order():
     )
 
     a[:, :] = data
-    print(data, data.shape, data.flags)
     read_data = a[:, :]
-    print(read_data, read_data.shape, read_data.flags)
     assert np.array_equal(data, read_data)
+    assert read_data.flags["F_CONTIGUOUS"]
+    assert not read_data.flags["C_CONTIGUOUS"]
+
+
+def test_order_C():
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="C")
+
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "order_C",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=0,
+        codecs=[
+            zarrita.TransposeCodecMetadata(
+                configuration=zarrita.TransposeCodecConfigurationMetadata(order="C")
+            ),
+        ],
+    )
+
+    a[:, :] = data
+    read_data = a[:, :]
+    assert np.array_equal(data, read_data)
+    assert read_data.flags["C_CONTIGUOUS"]
+    assert not read_data.flags["F_CONTIGUOUS"]
+
+
+def test_order_implicitC():
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="F")
+
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "order_implicitC",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=0,
+    )
+
+    a[:, :] = data
+    read_data = a[:, :]
+    assert np.array_equal(data, read_data)
+    assert read_data.flags["C_CONTIGUOUS"]
+    assert not read_data.flags["F_CONTIGUOUS"]
