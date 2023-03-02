@@ -1,3 +1,7 @@
-.idea
+/.idea
+/testdata
+/build/*
+/dist/
+/.vscode
+/*.egg-info
 __pycache__
-test*

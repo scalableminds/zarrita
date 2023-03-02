@@ -4,6 +4,8 @@ requirements = [
     "fsspec",
     "numpy",
     "numcodecs",
+    "webknossos=0.12.3",
+    "pytest"
 ]
 
 setup(
