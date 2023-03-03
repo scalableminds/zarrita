@@ -1,7 +1,7 @@
 import itertools
 import math
 import numbers
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Tuple, Union
 
 
 def _ensure_tuple(v):
@@ -31,7 +31,7 @@ def _check_selection_length(selection, shape):
         _err_too_many_indices(selection, shape)
 
 
-def _replace_ellipsis(selection, shape):
+def _replace_ellipsis(selection, shape) -> Tuple[int, ...]:
     selection = _ensure_tuple(selection)
 
     # count number of ellipsis present
@@ -89,7 +89,7 @@ def _normalize_integer_selection(dim_sel, dim_len):
     return dim_sel
 
 
-class _IntDimIndexer(object):
+class _IntDimIndexer:
     def __init__(self, dim_sel, dim_len, dim_chunk_len):
         # normalize
         dim_sel = _normalize_integer_selection(dim_sel, dim_len)
@@ -112,7 +112,7 @@ def _ceildiv(a, b):
     return math.ceil(a / b)
 
 
-class _SliceDimIndexer(object):
+class _SliceDimIndexer:
     def __init__(self, dim_sel, dim_len, dim_chunk_len):
         # normalize
         self.start, self.stop, self.step = dim_sel.indices(dim_len)
@@ -176,14 +176,19 @@ class _ChunkProjection(NamedTuple):
     out_selection: Any
 
 
-class _BasicIndexer:
-    def __init__(self, selection, shape, chunk_shape):
+class BasicIndexer:
+    def __init__(
+        self,
+        selection: Union[slice, Tuple[slice, ...]],
+        shape: Tuple[int, ...],
+        chunk_shape: Tuple[int, ...],
+    ):
         # handle ellipsis
-        selection = _replace_ellipsis(selection, shape)
+        selection2 = _replace_ellipsis(selection, shape)
 
         # setup per-dimension indexers
         dim_indexers = []
-        for dim_sel, dim_len, dim_chunk_len in zip(selection, shape, chunk_shape):
+        for dim_sel, dim_len, dim_chunk_len in zip(selection2, shape, chunk_shape):
             if isinstance(dim_sel, numbers.Integral):
                 dim_indexer = _IntDimIndexer(dim_sel, dim_len, dim_chunk_len)
 

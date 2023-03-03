@@ -44,11 +44,15 @@ class FileHandle(ValueHandle):
     ):
         assert isinstance(selection, slice)
         if selection.start is None and selection.stop is None:
-            self.store.set(self.path, value.tobytes())
+            buf = value.tobytes()
+            if buf:
+                self.store.set(self.path, buf)
+            else:
+                self.store.delete(self.path)
         else:
-            self.store.set(
-                self.path, value.tobytes(), (selection.start, selection.stop)
-            )
+            buf = value.tobytes()
+            if buf:
+                self.store.set(self.path, buf, (selection.start, selection.stop))
 
     def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
         assert isinstance(selection, slice)
@@ -63,7 +67,7 @@ class FileHandle(ValueHandle):
     def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
         buf = self.tobytes()
         if buf is not None:
-            return np.frombuffer(self.tobytes())
+            return np.frombuffer(buf)
         return None
 
 
@@ -80,14 +84,16 @@ class BufferHandle(ValueHandle):
         value: ValueHandle,
     ):
         assert isinstance(selection, slice)
-        if selection.start is None and selection.stop is None:
-            self.buf = value.tobytes()
-        else:
-            self.buf[selection] = value.tobytes()
+        buf = value.tobytes()
+        if buf:
+            if selection.start is None and selection.stop is None:
+                self.buf = buf
+            else:
+                tmp = bytearray(self.buf)
+                tmp[selection] = buf
+                self.buf = bytes(tmp)
 
-    def __getitem__(
-        self, selection: Union[slice, Tuple[slice, ...]]
-    ) -> Optional[ValueHandle]:
+    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
         assert isinstance(selection, slice)
         return BufferHandle(self.buf[selection])
 
@@ -112,9 +118,7 @@ class ArrayHandle(ValueHandle):
     ):
         self.buf[selection] = value.toarray()
 
-    def __getitem__(
-        self, selection: Union[slice, Tuple[slice, ...]]
-    ) -> Optional[ValueHandle]:
+    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
         return ArrayHandle(self.buf[selection])
 
     def tobytes(self) -> Optional[bytes]:
@@ -160,6 +164,9 @@ class Store:
     def set(
         self, key: str, value: bytes, byte_range: Optional[Tuple[int, int]] = None
     ) -> None:
+        raise NotImplemented
+
+    def delete(self, key: str) -> None:
         raise NotImplemented
 
 
@@ -222,3 +229,7 @@ class FileSystemStore(Store):
         else:
             with self.fs.open(path, "wb") as f:
                 f.write(value)
+
+    def delete(self, key: str) -> None:
+        path = f"{self.root}/{key}"
+        self.fs.rm(path)

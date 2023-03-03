@@ -1,4 +1,3 @@
-from collections import defaultdict
 import math
 from attrs import define, field
 import functools
@@ -8,7 +7,6 @@ from typing import (
     Final,
     Iterator,
     List,
-    Literal,
     NamedTuple,
     Optional,
     Set,
@@ -18,17 +16,15 @@ from typing import (
 )
 
 import numpy as np
-from zarrita.indexing import _BasicIndexer
+from zarrita.common import get_order
+from zarrita.indexing import BasicIndexer
 
-from zarrita.store import ArrayHandle, BufferHandle, NoneHandle, Store, ValueHandle
+from zarrita.store import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
 
 if TYPE_CHECKING:
-    from . import (
-        ChunkKeyEncodingMetadata,
-        CodecMetadata,
-        ArrayMetadata,
-        CoreArrayMetadata,
-    )
+    from zarrita.codecs import CodecMetadata
+    from zarrita.array import CoreArrayMetadata
+
 
 MAX_UINT_64 = 2**64 - 1
 
@@ -141,19 +137,13 @@ class ShardingCodecMetadata:
     configuration: ShardingCodecConfigurationMetadata
     name: Final = "sharding_indexed"
 
-    def _get_order(self) -> Union[Literal["C"], Literal["F"]]:
-        for codec in self.configuration.codecs:
-            if codec.name == "transpose":
-                return codec.configuration.order
-        return "C"
-
     def decode(
         self,
         value_handle: ValueHandle,
         selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        indexer = _BasicIndexer(
+        indexer = BasicIndexer(
             selection,
             shape=array_metadata.chunk_shape,
             chunk_shape=self.configuration.chunk_shape,
@@ -162,7 +152,7 @@ class ShardingCodecMetadata:
         out = np.zeros(
             array_metadata.chunk_shape,
             dtype=np.dtype(array_metadata.data_type.value),
-            order=self._get_order(),
+            order=get_order(self.configuration.codecs),
         )
         chunks_per_shard = tuple(
             s // c
@@ -174,22 +164,22 @@ class ShardingCodecMetadata:
 
         indexed_chunks = list(indexer)
         all_chunk_coords = set(chunk_coords for chunk_coords, _, _ in indexed_chunks)
-        shard_dict: Dict[Tuple[int, ...], ValueHandle]
+        shard_dict: Dict[Tuple[int, ...], ValueHandle] = {}
         if self._is_total_shard(all_chunk_coords, chunks_per_shard):
             shard_dict = self._load_full_shard(value_handle, chunks_per_shard)
         else:
             shard_index = self._load_shard_index(value_handle, chunks_per_shard)
             shard_dict = {}
             for chunk_coords in all_chunk_coords:
-                chunk_bytes = value_handle[
-                    shard_index.get_chunk_slice(chunk_coords)
-                ].tobytes()
-                if chunk_bytes:
-                    shard_dict[chunk_coords] = BufferHandle(chunk_bytes)
+                chunk_byte_slice = shard_index.get_chunk_slice(chunk_coords)
+                if chunk_byte_slice:
+                    chunk_bytes = value_handle[chunk_byte_slice].tobytes()
+                    if chunk_bytes:
+                        shard_dict[chunk_coords] = BufferHandle(chunk_bytes)
 
         for chunk_coords, chunk_selection, out_selection in indexed_chunks:
-            chunk_bytes = shard_dict.get(chunk_coords, NoneHandle())
-            chunk = self._decode_chunk(chunk_bytes, chunk_selection, array_metadata)
+            chunk_value = shard_dict.get(chunk_coords, NoneHandle())
+            chunk = self._decode_chunk(chunk_value, chunk_selection, array_metadata)
             if chunk is not None:
                 tmp = chunk[chunk_selection]
                 out[out_selection] = tmp
@@ -207,7 +197,7 @@ class ShardingCodecMetadata:
         if isinstance(value_handle, NoneHandle):
             return None
 
-        from zarrita import CoreArrayMetadata
+        from zarrita.array import CoreArrayMetadata
 
         core_metadata = CoreArrayMetadata(
             shape=array_metadata.chunk_shape,
@@ -222,14 +212,14 @@ class ShardingCodecMetadata:
     def encode(
         self,
         value: ValueHandle,
-        selection: Tuple[int, ...],
+        selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         shard_value = value.toarray()
         assert isinstance(shard_value, np.ndarray)
 
         indexer = list(
-            _BasicIndexer(
+            BasicIndexer(
                 selection,
                 shape=array_metadata.chunk_shape,
                 chunk_shape=self.configuration.chunk_shape,
@@ -264,7 +254,7 @@ class ShardingCodecMetadata:
         selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ):
-        from zarrita import CoreArrayMetadata
+        from zarrita.array import CoreArrayMetadata
 
         core_metadata = CoreArrayMetadata(
             shape=array_metadata.chunk_shape,
@@ -272,7 +262,7 @@ class ShardingCodecMetadata:
             data_type=array_metadata.data_type,
             fill_value=array_metadata.fill_value,
         )
-        encoded_chunk_value = ArrayHandle(chunk_value)
+        encoded_chunk_value: ValueHandle = ArrayHandle(chunk_value)
         for codec in self.configuration.codecs:
             encoded_chunk_value = codec.encode(
                 encoded_chunk_value,

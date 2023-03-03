@@ -6,8 +6,6 @@ from zarrita.sharding import morton_order_iter
 
 
 def test_sharding():
-    from timeit import default_timer as timer
-
     # ds = wk.Dataset.open_remote(
     #     "l4_sample",
     #     organization_id="scalable_minds",
@@ -27,32 +25,15 @@ def test_sharding():
             dtype=data.dtype,
             fill_value=0,
             codecs=[
-                zarrita.ShardingCodecMetadata(
-                    configuration=zarrita.ShardingCodecConfigurationMetadata(
-                        chunk_shape=(32, 32, 32),
-                        codecs=[
-                            zarrita.TransposeCodecMetadata(
-                                configuration=zarrita.TransposeCodecConfigurationMetadata(
-                                    order="F"
-                                )
-                            ),
-                            zarrita.BloscCodecMetadata(
-                                configuration=zarrita.BloscCodecConfigurationMetadata()
-                            ),
-                        ],
-                    )
-                ),
+                zarrita.codecs.sharding_codec(
+                    (32, 32, 32),
+                    [zarrita.codecs.transpose_codec("F"), zarrita.codecs.blosc_codec()],
+                )
             ],
         )
 
-        start = timer()
         a[:, :, :] = data
-        print("WRITE", timer() - start)
-
-        start = timer()
         read_data = a[:, :, :]
-        print("READ", timer() - start)
-
         assert np.array_equal(data, read_data)
 
     copy(ds.get_layer("color").get_mag(1).read()[0], "l4_sample/color/1")
@@ -70,11 +51,7 @@ def test_order_F():
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[
-            zarrita.TransposeCodecMetadata(
-                configuration=zarrita.TransposeCodecConfigurationMetadata(order="F")
-            ),
-        ],
+        codecs=[zarrita.codecs.transpose_codec("F")],
     )
 
     a[:, :] = data
@@ -95,11 +72,7 @@ def test_order_C():
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[
-            zarrita.TransposeCodecMetadata(
-                configuration=zarrita.TransposeCodecConfigurationMetadata(order="C")
-            ),
-        ],
+        codecs=[zarrita.codecs.transpose_codec("C")],
     )
 
     a[:, :] = data
@@ -181,3 +154,20 @@ def test_morton():
         (0, 1, 1, 1),
         (1, 1, 1, 1),
     ]
+
+
+def test_group():
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
+    s = zarrita.FileSystemStore("file://./testdata")
+    g = zarrita.Group.create(s, "group")
+    g.create_array(
+        "array",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=0,
+    )
+    g.create_group("group2")
+
+    assert isinstance(g["array"], zarrita.Array)
+    assert isinstance(g["group2"], zarrita.Group)
