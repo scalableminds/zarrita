@@ -20,7 +20,7 @@ a = zarrita.Array.create(
     shape=(6, 10),
     dtype=np.dtype('int32'),
     chunk_shape=(2, 5),
-    codecs=[zarrita.Array.gzip_codec(level=1)],
+    codecs=[zarrita.codecs.gzip_codec(level=1)],
     attributes={'question': 'life', 'answer': 42}
 )
 a[:, :] = np.ones((6, 10), dtype='int32')
@@ -30,25 +30,28 @@ a[:, :] = np.ones((6, 10), dtype='int32')
 
 ```python
 a = zarrita.Array.open(store, 'array')
-assert a[:, :] == np.ones((5, 10), dtype='int32')
+assert np.array_equal(a[:, :], np.ones((6, 10), dtype='int32'))
 ```
 
 ## Create an array with sharding
 
 ```python
 a = zarrita.Array.create(
-    '/arthur/dent',
+    store,
+    'sharding',
     shape=(16, 16),
     dtype=np.dtype('int32'),
     chunk_shape=(16, 16),
     codecs=[
-        zarrita.Array.sharding_codec(
+        zarrita.codecs.sharding_codec(
             chunk_shape=(8, 8),
-            codecs=[zarrita.Array.gzip_codec(level=1)]
+            codecs=[zarrita.codecs.gzip_codec(level=1)]
         ),
     ],
 )
-a[:, :] = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
+data = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
+a[:, :] = data
+assert np.array_equal(a[:, :], data)
 ```
 
 # Create a group
@@ -71,7 +74,7 @@ a[:, :] = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
 g = zarrita.Group.open(store, 'group')
 g2 = g['group2']
 a = g['group2/array']
-assert a[:, :] == np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
+assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
 ```
 
 ## TODO
