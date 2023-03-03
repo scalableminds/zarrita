@@ -1,9 +1,9 @@
-from attrs import define
-from typing import List, Optional, Tuple, Union
 from abc import abstractmethod
+from typing import List, Optional, Tuple, Union
 
 import fsspec
 import numpy as np
+from attrs import define
 
 
 class ValueHandle:

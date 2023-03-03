@@ -1,17 +1,19 @@
 import json
-from typing import Any, Dict, Final, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
+
 from attr import asdict, define, field
+from cattrs import structure
+
 from zarrita.array import Array
 from zarrita.common import ZARR_JSON
-
 from zarrita.store import Store
 
 
 @define
 class GroupMetadata:
     attributes: Dict[str, Any] = field(factory=dict)
-    zarr_format: Final = 3
-    node_type: Final = "group"
+    zarr_format: Literal[3] = 3
+    node_type: Literal["group"] = "group"
 
 
 class Group:
@@ -38,9 +40,8 @@ class Group:
 
     @classmethod
     def from_json(cls, store: Store, path: str, zarr_json: Any) -> "Group":
-        metadata = GroupMetadata(**zarr_json)
         group = cls()
-        group.metadata = metadata
+        group.metadata = structure(zarr_json, GroupMetadata)
         group.store = store
         group.path = path
         return group

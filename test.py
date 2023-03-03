@@ -1,7 +1,7 @@
-import zarrita
 import numpy as np
 import webknossos as wk
 
+import zarrita
 from zarrita.sharding import morton_order_iter
 
 
@@ -104,8 +104,16 @@ def test_order_implicitC():
 
 def test_open():
     s = zarrita.FileSystemStore("file://./testdata")
-    a = zarrita.Array.open(s, "l4_sample/color/1")
-    print(a.metadata)
+    a = zarrita.Array.create(
+        s,
+        "open",
+        shape=(16, 16),
+        chunk_shape=(16, 16),
+        dtype="int32",
+        fill_value=0,
+    )
+    b = zarrita.Array.open(s, "open")
+    assert a.metadata == b.metadata
 
 
 def test_simple():

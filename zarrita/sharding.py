@@ -1,29 +1,29 @@
-import math
-from attrs import define, field
 import functools
 import itertools
+import math
 from typing import (
+    TYPE_CHECKING,
     Dict,
-    Final,
     Iterator,
     List,
+    Literal,
     NamedTuple,
     Optional,
     Set,
     Tuple,
     Union,
-    TYPE_CHECKING,
 )
 
 import numpy as np
+from attrs import define, field
+
 from zarrita.common import get_order
 from zarrita.indexing import BasicIndexer
-
 from zarrita.store import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
 
 if TYPE_CHECKING:
-    from zarrita.codecs import CodecMetadata
     from zarrita.array import CoreArrayMetadata
+    from zarrita.codecs import CodecMetadata
 
 
 MAX_UINT_64 = 2**64 - 1
@@ -135,7 +135,7 @@ class _ShardIndex(NamedTuple):
 @define
 class ShardingCodecMetadata:
     configuration: ShardingCodecConfigurationMetadata
-    name: Final = "sharding_indexed"
+    name: Literal["sharding_indexed"] = "sharding_indexed"
 
     def decode(
         self,

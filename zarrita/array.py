@@ -1,8 +1,10 @@
-from enum import Enum
 import json
-from typing import Any, Dict, Final, List, Literal, Optional, Tuple, Union
-from attr import asdict, define, field
+from enum import Enum
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+
 import numpy as np
+from attr import asdict, define, field
+from cattrs import register_structure_hook, structure
 
 from zarrita.codecs import CodecMetadata
 from zarrita.common import ZARR_JSON, _is_total_slice, get_order
@@ -12,16 +14,31 @@ from zarrita.store import ArrayHandle, FileHandle, Store, ValueHandle
 
 class DataType(Enum):
     bool = "bool"
-    int8 = "|i1"
-    int16 = "<i2"
-    int32 = "<i4"
-    int64 = "<i8"
-    uint8 = "|u1"
-    uint16 = "<u2"
-    uint32 = "<u4"
-    uint64 = "<u8"
-    float32 = "<f4"
-    float64 = "<f8"
+    int8 = "int8"
+    int16 = "int16"
+    int32 = "int32"
+    int64 = "int64"
+    uint8 = "uint8"
+    uint16 = "uint16"
+    uint32 = "uint32"
+    uint64 = "uint64"
+    float32 = "float32"
+    float64 = "float64"
+
+
+dtype_to_data_type = {
+    "bool": "bool",
+    "|i1": "int8",
+    "<i2": "int16",
+    "<i4": "int32",
+    "<i8": "int64",
+    "|u1": "uint8",
+    "<u2": "uint16",
+    "<u4": "uint32",
+    "<u8": "uint64",
+    "<f4": "float32",
+    "<f8": "float64",
+}
 
 
 @define
@@ -32,7 +49,7 @@ class RegularChunkGridConfigurationMetadata:
 @define
 class RegularChunkGridMetadata:
     configuration: RegularChunkGridConfigurationMetadata
-    name: Final = "regular"
+    name: Literal["regular"] = "regular"
 
 
 @define
@@ -45,7 +62,7 @@ class DefaultChunkKeyEncodingMetadata:
     configuration: DefaultChunkKeyEncodingConfigurationMetadata = (
         DefaultChunkKeyEncodingConfigurationMetadata()
     )
-    name: Final = "default"
+    name: Literal["default"] = "default"
 
     def decode_chunk_key(self, chunk_key: str) -> Tuple[int, ...]:
         if chunk_key == "c":
@@ -67,7 +84,7 @@ class V2ChunkKeyEncodingMetadata:
     configuration: V2ChunkKeyEncodingConfigurationMetadata = (
         V2ChunkKeyEncodingConfigurationMetadata()
     )
-    name: Final = "v2"
+    name: Literal["v2"] = "v2"
 
     def decode_chunk_key(self, chunk_key: str) -> Tuple[int, ...]:
         return tuple(map(int, chunk_key.split(self.configuration.separator)))
@@ -100,8 +117,8 @@ class ArrayMetadata:
     attributes: Dict[str, Any] = field(factory=dict)
     codecs: List[CodecMetadata] = field(factory=list)
     dimension_names: Optional[List[str]] = None
-    zarr_format: Final = 3
-    node_type: Final = "array"
+    zarr_format: Literal[3] = 3
+    node_type: Literal["array"] = "array"
 
     @property
     def dtype(self) -> np.dtype:
@@ -120,7 +137,7 @@ class Array:
         path: str,
         *,
         shape: Tuple[int, ...],
-        dtype: np.dtype,
+        dtype: Union[str, np.dtype],
         chunk_shape: Tuple[int, ...],
         fill_value: Optional[Any] = None,
         chunk_key_encoding: Union[
@@ -130,9 +147,15 @@ class Array:
         codecs: Optional[List[CodecMetadata]] = None,
         attributes: Optional[Dict[str, Any]] = None,
     ) -> "Array":
+        data_type = (
+            DataType[dtype]
+            if isinstance(dtype, str)
+            else DataType[dtype_to_data_type[dtype.str]]
+        )
+
         metadata = ArrayMetadata(
             shape=shape,
-            data_type=DataType(dtype.str),
+            data_type=data_type,
             chunk_grid=RegularChunkGridMetadata(
                 configuration=RegularChunkGridConfigurationMetadata(
                     chunk_shape=chunk_shape
@@ -170,9 +193,8 @@ class Array:
 
     @classmethod
     def from_json(cls, store: Store, path: str, zarr_json: Any) -> "Array":
-        metadata = ArrayMetadata(**zarr_json)
         array = cls()
-        array.metadata = metadata
+        array.metadata = structure(zarr_json, ArrayMetadata)
         array.store = store
         array.path = path
         return array
@@ -312,3 +334,14 @@ class Array:
     def __repr__(self):
         path = self.path
         return f"<Array {path}>"
+
+
+def structure_codec_metadata(d: Dict[str, Any], _t) -> ChunkKeyEncodingMetadata:
+    if d["name"] == "default":
+        return structure(d, DefaultChunkKeyEncodingMetadata)
+    if d["name"] == "v2":
+        return structure(d, V2ChunkKeyEncodingMetadata)
+    raise KeyError
+
+
+register_structure_hook(ChunkKeyEncodingMetadata, structure_codec_metadata)

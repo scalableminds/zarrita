@@ -1,9 +1,12 @@
-from typing import TYPE_CHECKING, Final, List, Literal, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union
+
+import numpy as np
 from attr import define
 from attrs import asdict
+from cattrs import register_structure_hook, structure
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
-import numpy as np
+
 from zarrita.sharding import ShardingCodecConfigurationMetadata, ShardingCodecMetadata
 
 if TYPE_CHECKING:
@@ -23,7 +26,7 @@ class BloscCodecConfigurationMetadata:
 @define
 class BloscCodecMetadata:
     configuration: BloscCodecConfigurationMetadata
-    name: Final = "blosc"
+    name: Literal["blosc"] = "blosc"
 
     def decode(
         self,
@@ -58,7 +61,7 @@ class EndianCodecConfigurationMetadata:
 @define
 class EndianCodecMetadata:
     configuration: EndianCodecConfigurationMetadata
-    name: Final = "endian"
+    name: Literal["endian"] = "endian"
 
     def _get_byteorder(self, array: np.ndarray) -> Literal["big", "little"]:
         if array.dtype.byteorder == "<":
@@ -107,7 +110,7 @@ class TransposeCodecConfigurationMetadata:
 @define
 class TransposeCodecMetadata:
     configuration: TransposeCodecConfigurationMetadata
-    name: Final = "transpose"
+    name: Literal["transpose"] = "transpose"
 
     def decode(
         self,
@@ -119,16 +122,14 @@ class TransposeCodecMetadata:
         if chunk is None:
             return NoneHandle()
         new_order = self.configuration.order
-        order = "C" if chunk.flags["C_CONTIGUOUS"] else "F"
-        if new_order != order:
-            chunk = chunk.view(np.dtype(array_metadata.data_type.value))
-            if isinstance(new_order, tuple):
-                chunk = chunk.transpose(new_order)
-            else:
-                chunk = chunk.reshape(
-                    array_metadata.chunk_shape,
-                    order=new_order,
-                )
+        chunk = chunk.view(np.dtype(array_metadata.data_type.value))
+        if isinstance(new_order, tuple):
+            chunk = chunk.transpose(new_order)
+        else:
+            chunk = chunk.reshape(
+                array_metadata.chunk_shape,
+                order=new_order,
+            )
         return ArrayHandle(chunk)
 
     def encode(
@@ -156,7 +157,7 @@ class GzipCodecConfigurationMetadata:
 @define
 class GzipCodecMetadata:
     configuration: GzipCodecConfigurationMetadata
-    name: Final = "gzip"
+    name: Literal["gzip"] = "gzip"
 
     def decode(
         self,
@@ -225,3 +226,20 @@ def sharding_codec(
     return ShardingCodecMetadata(
         configuration=ShardingCodecConfigurationMetadata(chunk_shape, codecs)
     )
+
+
+def structure_codec_metadata(d: Dict[str, Any], _t) -> CodecMetadata:
+    if d["name"] == "blosc":
+        return structure(d, BloscCodecMetadata)
+    if d["name"] == "endian":
+        return structure(d, EndianCodecMetadata)
+    if d["name"] == "transpose":
+        return structure(d, TransposeCodecMetadata)
+    if d["name"] == "gzip":
+        return structure(d, GzipCodecMetadata)
+    if d["name"] == "sharding_indexed":
+        return structure(d, ShardingCodecMetadata)
+    raise KeyError
+
+
+register_structure_hook(CodecMetadata, structure_codec_metadata)

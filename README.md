@@ -73,3 +73,8 @@ g2 = g['group2']
 a = g['group2/array']
 assert a[:, :] == np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
 ```
+
+## TODO
+
+- [] Non-full chunks
+- []

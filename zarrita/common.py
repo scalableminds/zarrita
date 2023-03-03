@@ -1,4 +1,4 @@
-from typing import List, Literal, TYPE_CHECKING
+from typing import TYPE_CHECKING, List, Literal
 
 if TYPE_CHECKING:
     from zarrita.codecs import CodecMetadata
@@ -38,5 +38,7 @@ def _is_total_slice(item, shape):
 def get_order(codecs: List["CodecMetadata"]) -> Literal["C", "F"]:
     for codec in codecs:
         if codec.name == "transpose":
-            return codec.configuration.order
+            order = codec.configuration.order
+            if not isinstance(order, tuple):
+                return order
     return "C"
