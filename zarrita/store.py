@@ -232,4 +232,5 @@ class FileSystemStore(Store):
 
     def delete(self, key: str) -> None:
         path = f"{self.root}/{key}"
-        self.fs.rm(path)
+        if self.fs.exists(path):
+            self.fs.rm(path)

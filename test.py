@@ -179,3 +179,35 @@ def test_group():
 
     assert isinstance(g["array"], zarrita.Array)
     assert isinstance(g["group2"], zarrita.Group)
+
+
+def test_write_non_full_chunks():
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "write_non_full_chunks",
+        shape=data.shape,
+        chunk_shape=(20, 20),
+        dtype=data.dtype,
+        fill_value=1,
+    )
+    a[0:16, 0:16] = data
+    assert np.array_equal(a[0:16, 0:16], data)
+
+
+def test_delete_empty_chunks():
+    data = np.ones((16, 16))
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "delete_empty_chunks",
+        shape=data.shape,
+        chunk_shape=(32, 32),
+        dtype=data.dtype,
+        fill_value=1,
+    )
+    a[0:16, 0:16] = np.zeros((16, 16))
+    a[0:16, 0:16] = data
+    assert np.array_equal(a[0:16, 0:16], data)
+    assert s.get("delete_empty_chunks/c0/0") == None

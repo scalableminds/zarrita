@@ -9,7 +9,7 @@ from cattrs import register_structure_hook, structure
 from zarrita.codecs import CodecMetadata
 from zarrita.common import ZARR_JSON, _is_total_slice, get_order
 from zarrita.indexing import BasicIndexer
-from zarrita.store import ArrayHandle, FileHandle, Store, ValueHandle
+from zarrita.store import ArrayHandle, FileHandle, NoneHandle, Store, ValueHandle
 
 
 class DataType(Enum):
@@ -292,26 +292,51 @@ class Array:
                 value = np.asarray(value, self.dtype)
             assert value.shape == sel_shape
 
+        chunk: np.ndarray
         for chunk_coords, chunk_selection, out_selection in indexer:
-            assert _is_total_slice(
-                chunk_selection, self.metadata.chunk_grid.configuration.chunk_shape
-            )
             chunk_key = f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}"
             value_handle = FileHandle(self.store, chunk_key)
-
-            # extract data to store
-            if sel_shape == ():
-                chunk_value = value
-            elif np.isscalar(value):
-                chunk_value = np.empty(
-                    self.metadata.chunk_grid.configuration.chunk_shape,
-                    dtype=self.metadata.dtypes,
-                    order="C",
-                )
-                chunk_value.fill(value)
+            if _is_total_slice(
+                chunk_selection, self.metadata.chunk_grid.configuration.chunk_shape
+            ):
+                # extract data to store
+                if sel_shape == ():
+                    chunk = value
+                elif np.isscalar(value):
+                    chunk = np.empty(
+                        self.metadata.chunk_grid.configuration.chunk_shape,
+                        dtype=self.metadata.dtypes,
+                        order="C",
+                    )
+                    chunk.fill(value)
+                else:
+                    chunk = value[out_selection]
             else:
-                chunk_value = value[out_selection]
-            chunk_value = self._encode_chunk(chunk_value, chunk_selection)
+                # Read full chunk, if it exists
+                chunk = self._decode_chunk(
+                    value_handle,
+                    tuple(
+                        slice(0, c)
+                        for c in self.metadata.chunk_grid.configuration.chunk_shape
+                    ),
+                )
+                if chunk is None:
+                    chunk = np.empty(
+                        self.metadata.chunk_grid.configuration.chunk_shape,
+                        dtype=self.metadata.dtype,
+                        order="C",
+                    )
+                    if self.metadata.fill_value:
+                        chunk.fill(self.metadata.fill_value)
+                else:
+                    chunk = chunk.copy()  # make a writable copy
+                chunk[chunk_selection] = value[out_selection]
+
+            chunk_value: ValueHandle
+            if self.metadata.fill_value and np.all(chunk == self.metadata.fill_value):
+                chunk_value = NoneHandle()
+            else:
+                chunk_value = self._encode_chunk(chunk, chunk_selection)
             value_handle[:] = chunk_value
 
     def _encode_chunk(self, chunk_value: np.ndarray, selection: Tuple[slice, ...]):
