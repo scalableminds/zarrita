@@ -18,7 +18,7 @@ a = zarrita.Array.create(
     store,
     'array',
     shape=(6, 10),
-    dtype=np.dtype('int32'),
+    dtype='int32',
     chunk_shape=(2, 5),
     codecs=[zarrita.codecs.gzip_codec(level=1)],
     attributes={'question': 'life', 'answer': 42}
@@ -40,7 +40,7 @@ a = zarrita.Array.create(
     store,
     'sharding',
     shape=(16, 16),
-    dtype=np.dtype('int32'),
+    dtype='int32',
     chunk_shape=(16, 16),
     codecs=[
         zarrita.codecs.sharding_codec(
@@ -62,7 +62,7 @@ g2 = g.create_group('group2')
 a = g2.create_array(
     'array',
     shape=(16, 16),
-    dtype=np.dtype('int32'),
+    dtype='int32',
     chunk_shape=(16, 16),
 )
 a[:, :] = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
