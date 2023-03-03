@@ -1,6 +1,6 @@
 # zarrita
 
-**Here be dragons.** Zarrita is a minimal, exploratory implementation of the [Zarr version 3.0 core protocol](https://zarr-specs.readthedocs.io/en/latest/v3/core/v3.0.html). Includes an implementation of sharding. This is a technical spike only, not for production use.
+**Here be dragons.** Zarrita is a minimal, exploratory implementation of [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/v3.0.html) includes [sharding](https://zarr.dev/zeps/draft/ZEP0002.html). This is only a technical proof of concept. Definitely, not for production use.
 
 ## Setup
 
