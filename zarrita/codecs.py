@@ -1,8 +1,7 @@
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union
 
 import numpy as np
-from attr import define
-from attrs import asdict
+from attr import asdict, frozen
 from cattrs import register_structure_hook, structure
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
@@ -15,7 +14,7 @@ if TYPE_CHECKING:
 from zarrita.store import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
 
 
-@define
+@frozen
 class BloscCodecConfigurationMetadata:
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
     clevel: int = 5
@@ -23,7 +22,7 @@ class BloscCodecConfigurationMetadata:
     blocksize: int = 0
 
 
-@define
+@frozen
 class BloscCodecMetadata:
     configuration: BloscCodecConfigurationMetadata
     name: Literal["blosc"] = "blosc"
@@ -53,12 +52,12 @@ class BloscCodecMetadata:
         return BufferHandle(Blosc.from_config(asdict(self.configuration)).encode(chunk))
 
 
-@define
+@frozen
 class EndianCodecConfigurationMetadata:
     endian: Literal["big", "little"] = "little"
 
 
-@define
+@frozen
 class EndianCodecMetadata:
     configuration: EndianCodecConfigurationMetadata
     name: Literal["endian"] = "endian"
@@ -102,12 +101,12 @@ class EndianCodecMetadata:
         return ArrayHandle(chunk)
 
 
-@define
+@frozen
 class TransposeCodecConfigurationMetadata:
     order: Union[Literal["C", "F"], Tuple[int, ...]] = "C"
 
 
-@define
+@frozen
 class TransposeCodecMetadata:
     configuration: TransposeCodecConfigurationMetadata
     name: Literal["transpose"] = "transpose"
@@ -149,12 +148,12 @@ class TransposeCodecMetadata:
         return ArrayHandle(chunk)
 
 
-@define
+@frozen
 class GzipCodecConfigurationMetadata:
     level: int = 5
 
 
-@define
+@frozen
 class GzipCodecMetadata:
     configuration: GzipCodecConfigurationMetadata
     name: Literal["gzip"] = "gzip"

@@ -3,7 +3,7 @@ from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
-from attr import asdict, define, field
+from attr import asdict, field, frozen
 from cattrs import register_structure_hook, structure
 
 from zarrita.codecs import CodecMetadata
@@ -41,23 +41,23 @@ dtype_to_data_type = {
 }
 
 
-@define
+@frozen
 class RegularChunkGridConfigurationMetadata:
     chunk_shape: Tuple[int, ...]
 
 
-@define
+@frozen
 class RegularChunkGridMetadata:
     configuration: RegularChunkGridConfigurationMetadata
     name: Literal["regular"] = "regular"
 
 
-@define
+@frozen
 class DefaultChunkKeyEncodingConfigurationMetadata:
     separator: Literal[".", "/"] = "/"
 
 
-@define
+@frozen
 class DefaultChunkKeyEncodingMetadata:
     configuration: DefaultChunkKeyEncodingConfigurationMetadata = (
         DefaultChunkKeyEncodingConfigurationMetadata()
@@ -74,12 +74,12 @@ class DefaultChunkKeyEncodingMetadata:
         return f"c{'0' if chunk_identifier == '' else chunk_identifier}"
 
 
-@define
+@frozen
 class V2ChunkKeyEncodingConfigurationMetadata:
     separator: Literal[".", "/"] = "."
 
 
-@define
+@frozen
 class V2ChunkKeyEncodingMetadata:
     configuration: V2ChunkKeyEncodingConfigurationMetadata = (
         V2ChunkKeyEncodingConfigurationMetadata()
@@ -99,7 +99,7 @@ ChunkKeyEncodingMetadata = Union[
 ]
 
 
-@define
+@frozen
 class CoreArrayMetadata:
     shape: Tuple[int, ...]
     chunk_shape: Tuple[int, ...]
@@ -107,7 +107,7 @@ class CoreArrayMetadata:
     fill_value: Any
 
 
-@define
+@frozen
 class ArrayMetadata:
     shape: Tuple[int, ...]
     data_type: DataType

@@ -15,7 +15,7 @@ from typing import (
 )
 
 import numpy as np
-from attrs import define, field
+from attrs import field, frozen
 
 from zarrita.common import get_order
 from zarrita.indexing import BasicIndexer
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 MAX_UINT_64 = 2**64 - 1
 
 
-@define
+@frozen
 class ShardingCodecConfigurationMetadata:
     chunk_shape: Tuple[int, ...]
     codecs: List["CodecMetadata"] = field(factory=list)
@@ -132,7 +132,7 @@ class _ShardIndex(NamedTuple):
         return 16 * product(chunks_per_shard)
 
 
-@define
+@frozen
 class ShardingCodecMetadata:
     configuration: ShardingCodecConfigurationMetadata
     name: Literal["sharding_indexed"] = "sharding_indexed"

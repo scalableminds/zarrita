@@ -1,7 +1,7 @@
 import json
 from typing import Any, Dict, Literal, Optional, Union
 
-from attr import asdict, define, field
+from attr import asdict, field, frozen
 from cattrs import structure
 
 from zarrita.array import Array
@@ -9,7 +9,7 @@ from zarrita.common import ZARR_JSON
 from zarrita.store import Store
 
 
-@define
+@frozen
 class GroupMetadata:
     attributes: Dict[str, Any] = field(factory=dict)
     zarr_format: Literal[3] = 3
