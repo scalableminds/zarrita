@@ -207,7 +207,20 @@ class ShardingCodecMetadata:
         )
         for codec_metadata in self.configuration.codecs[::-1]:
             value_handle = codec_metadata.decode(value_handle, selection, core_metadata)
-        return value_handle.toarray()
+
+        # view as numpy array with correct dtype
+        chunk = value_handle.toarray()
+        if chunk is None:
+            return None
+
+        if str(chunk.dtype) != array_metadata.data_type.name:
+            chunk = chunk.view(np.dtype(array_metadata.data_type.name))
+
+        # ensure correct chunk shape
+        if chunk.shape != self.configuration.chunk_shape:
+            chunk = chunk.reshape(self.configuration.chunk_shape)
+
+        return chunk
 
     def encode(
         self,
@@ -309,7 +322,7 @@ class ShardingCodecMetadata:
             + shard_index.byte_length
         )
         byte_offset = 0
-        for chunk_coords in c_order_iter(chunks_per_shard):
+        for chunk_coords in morton_order_iter(chunks_per_shard):
             chunk_bytes = byte_shard_dict.get(chunk_coords, None)
             if chunk_bytes is not None:
                 byte_offset_end = byte_offset + len(chunk_bytes)

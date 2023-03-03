@@ -42,6 +42,7 @@ a = zarrita.Array.create(
     shape=(16, 16),
     dtype='int32',
     chunk_shape=(16, 16),
+    chunk_key_encoding=('v2', '.'),
     codecs=[
         zarrita.codecs.sharding_codec(
             chunk_shape=(8, 8),
