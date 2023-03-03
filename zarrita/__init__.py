@@ -1,4 +1,3 @@
-from dataclasses import asdict, dataclass, field
 from enum import Enum
 import json
 import sys
@@ -12,23 +11,26 @@ from typing import (
     List,
     Dict,
 )
+from attrs import define, field, asdict
 
 import numpy as np
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
-from numcodecs.compat import (
-    ensure_ndarray_like,
-    ensure_contiguous_ndarray_like,
-    is_ndarray_like,
-)
+
 
 from zarrita.indexing import _BasicIndexer
 from zarrita.sharding import (
-    ShardingStorageTransformer,
-    ShardingStorageTransformerMetadata,
-    ShardingStorageTransformerConfigurationMetadata,
+    ShardingCodecMetadata,
+    ShardingCodecConfigurationMetadata,
 )
-from zarrita.store import Store, FileSystemStore
+from zarrita.store import (
+    BufferHandle,
+    FileHandle,
+    Store,
+    FileSystemStore,
+    ValueHandle,
+    ArrayHandle,
+)
 
 
 class DataType(Enum):
@@ -45,23 +47,23 @@ class DataType(Enum):
     float64 = "<f8"
 
 
-@dataclass
+@define
 class RegularChunkGridConfigurationMetadata:
     chunk_shape: List[int]
 
 
-@dataclass
+@define
 class RegularChunkGridMetadata:
     configuration: RegularChunkGridConfigurationMetadata
     name: Final = "regular"
 
 
-@dataclass
+@define
 class DefaultChunkKeyEncodingConfigurationMetadata:
     separator: Optional[Union[Literal["."], Literal["/"]]] = "/"
 
 
-@dataclass
+@define
 class DefaultChunkKeyEncodingMetadata:
     configuration: Optional[DefaultChunkKeyEncodingConfigurationMetadata]
     name: Final = "default"
@@ -76,12 +78,12 @@ class DefaultChunkKeyEncodingMetadata:
         return f"c{'0' if chunk_identifier == '' else chunk_identifier}"
 
 
-@dataclass
+@define
 class V2ChunkKeyEncodingConfigurationMetadata:
     separator: Optional[Union[Literal["."], Literal["/"]]] = "."
 
 
-@dataclass
+@define
 class V2ChunkKeyEncodingMetadata:
     configuration: Optional[V2ChunkKeyEncodingConfigurationMetadata]
     name: Final = "v2"
@@ -99,7 +101,33 @@ ChunkKeyEncodingMetadata = Union[
 ]
 
 
-@dataclass
+@define
+class CoreArrayMetadata:
+    shape: Tuple[int, ...]
+    chunk_shape: Tuple[int, ...]
+    data_type: DataType
+    fill_value: Any
+
+
+class Codec:
+    def decode(
+        self,
+        file: ValueHandle,
+        selection: Tuple[slice, ...],
+        array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        pass
+
+    def encode(
+        self,
+        value: ValueHandle,
+        selection: Tuple[slice, ...],
+        array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        pass
+
+
+@define
 class BloscCodecConfigurationMetadata:
     cname: Union[
         Literal["lz4"],
@@ -114,30 +142,39 @@ class BloscCodecConfigurationMetadata:
     blocksize: int = 0
 
 
-@dataclass
+@define
 class BloscCodecMetadata:
     configuration: BloscCodecConfigurationMetadata
     name: Final = "blosc"
 
-    def decode_chunk(
-        self, encoded_chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
-    ) -> bytes:
-        return Blosc.from_config(asdict(self.configuration)).decode(encoded_chunk)
+    def decode(
+        self,
+        value: ValueHandle,
+        _selection: Tuple[slice, ...],
+        _array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        return BufferHandle(
+            Blosc.from_config(asdict(self.configuration)).decode(value.tobytes())
+        )
 
-    def encode_chunk(
-        self, chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
-    ) -> bytes:
+    def encode(
+        self,
+        value: ValueHandle,
+        _selection: Tuple[int, ...],
+        _array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        chunk = value.toarray()
         if not chunk.flags.c_contiguous and not chunk.flags.f_contiguous:
             chunk = chunk.copy(order="K")
-        return Blosc.from_config(asdict(self.configuration)).encode(chunk)
+        return BufferHandle(Blosc.from_config(asdict(self.configuration)).encode(chunk))
 
 
-@dataclass
+@define
 class EndianCodecConfigurationMetadata:
     endian: Union[Literal["big"], Literal["little"]] = "little"
 
 
-@dataclass
+@define
 class EndianCodecMetadata:
     configuration: EndianCodecConfigurationMetadata
     name: Final = "endian"
@@ -152,104 +189,124 @@ class EndianCodecMetadata:
         else:
             return sys.byteorder
 
-    def decode_chunk(
+    def decode(
         self,
-        encoded_chunk: np.ndarray,
-        _array_metadata: Optional["ArrayMetadata"] = None,
-    ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray_like(encoded_chunk)
+        value: ValueHandle,
+        _selection: Tuple[slice, ...],
+        _array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        encoded_chunk = value.toarray()
         byteorder = self._get_byteorder(encoded_chunk)
         if self.configuration.endian != byteorder:
             encoded_chunk = encoded_chunk.view(
                 dtype=encoded_chunk.dtype.newbyteorder(byteorder)
             )
-        return encoded_chunk
+        return ArrayHandle(encoded_chunk)
 
-    def encode_chunk(
-        self, chunk: np.ndarray, _array_metadata: Optional["ArrayMetadata"] = None
-    ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray_like(chunk)
+    def encode(
+        self,
+        value: ValueHandle,
+        _selection: Tuple[int, ...],
+        _array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        encoded_chunk = value.toarray()
         byteorder = self._get_byteorder(encoded_chunk)
         if self.configuration.endian != byteorder:
             encoded_chunk = encoded_chunk.view(
                 dtype=encoded_chunk.dtype.newbyteorder(byteorder)
             )
-        return encoded_chunk
+        return ArrayHandle(encoded_chunk)
 
 
-@dataclass
+@define
 class TransposeCodecConfigurationMetadata:
     order: Union[Literal["C"], Literal["F"], List[int]] = "C"
 
 
-@dataclass
+@define
 class TransposeCodecMetadata:
     configuration: TransposeCodecConfigurationMetadata
     name: Final = "transpose"
 
-    def decode_chunk(
+    def decode(
         self,
-        encoded_chunk: np.ndarray,
-        array_metadata: Optional["ArrayMetadata"] = None,
-    ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray_like(encoded_chunk)
+        value: ValueHandle,
+        _selection: Tuple[slice, ...],
+        array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        encoded_chunk = value.toarray()
         assert self.configuration.order in ("C", "F")
         order = "C" if encoded_chunk.flags["C_CONTIGUOUS"] else "F"
         if self.configuration.order != order:
-            encoded_chunk = encoded_chunk.view(array_metadata.dtype).reshape(
-                array_metadata.chunk_grid.configuration.chunk_shape,
+            encoded_chunk = encoded_chunk.view(
+                np.dtype(array_metadata.data_type.value)
+            ).reshape(
+                array_metadata.chunk_shape,
                 order=self.configuration.order,
             )
-        return encoded_chunk
+        return ArrayHandle(encoded_chunk)
 
-    def encode_chunk(
-        self, chunk: np.ndarray, _array_metadata: Optional["ArrayMetadata"] = None
-    ) -> np.ndarray:
-        encoded_chunk = ensure_ndarray_like(chunk)
+    def encode(
+        self,
+        value: ValueHandle,
+        _selection: Tuple[int, ...],
+        _array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        encoded_chunk = value.toarray()
         assert self.configuration.order in ("C", "F")
         encoded_chunk = encoded_chunk.reshape(-1, order=self.configuration.order)
-        return encoded_chunk
+        return ArrayHandle(encoded_chunk)
 
 
-@dataclass
+@define
 class GzipCodecConfigurationMetadata:
     level: int = 5
 
 
-@dataclass
+@define
 class GzipCodecMetadata:
     configuration: GzipCodecConfigurationMetadata
     name: Final = "gzip"
 
-    def decode_chunk(
-        self, encoded_chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
-    ) -> bytes:
-        return GZip.from_config(self.configuration).decode(encoded_chunk)
+    def decode(
+        self,
+        value: ValueHandle,
+        _selection: Tuple[slice, ...],
+        _array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        return BufferHandle(
+            GZip.from_config(self.configuration).decode(value.tobytes())
+        )
 
-    def encode_chunk(
-        self, chunk: bytes, _array_metadata: Optional["ArrayMetadata"] = None
-    ) -> bytes:
-        return GZip.from_config(self.configuration).encode(chunk)
+    def encode(
+        self,
+        value: ValueHandle,
+        _selection: Tuple[int, ...],
+        _array_metadata: CoreArrayMetadata,
+    ) -> ValueHandle:
+        return BufferHandle(
+            GZip.from_config(self.configuration).encode(value.tobytes())
+        )
 
 
 CodecMetadata = Union[
-    BloscCodecMetadata, EndianCodecMetadata, TransposeCodecMetadata, GzipCodecMetadata
+    BloscCodecMetadata,
+    EndianCodecMetadata,
+    TransposeCodecMetadata,
+    GzipCodecMetadata,
+    ShardingCodecMetadata,
 ]
 
 
-StorageTransformerMetadata = ShardingStorageTransformerMetadata
-
-
-@dataclass
+@define
 class ArrayMetadata:
     shape: Tuple[int, ...]
     data_type: DataType
     chunk_grid: RegularChunkGridMetadata
     chunk_key_encoding: ChunkKeyEncodingMetadata
     fill_value: Any
-    attributes: Dict[str, Any] = field(default_factory=dict)
-    codecs: List[CodecMetadata] = field(default_factory=list)
-    storage_transformers: List[StorageTransformerMetadata] = field(default_factory=list)
+    attributes: Dict[str, Any] = field(factory=dict)
+    codecs: List[CodecMetadata] = field(factory=list)
     dimension_names: Optional[List[str]] = None
     zarr_format: Final = 3
     node_type: Final = "array"
@@ -259,9 +316,9 @@ class ArrayMetadata:
         return np.dtype(self.data_type.value)
 
 
-@dataclass
+@define
 class GroupMetadata:
-    attributes: Dict[str, Any] = field(default_factory=dict)
+    attributes: Dict[str, Any] = field(factory=dict)
     zarr_format: Final = 3
     node_type: Final = "group"
 
@@ -286,7 +343,6 @@ class Array:
             Tuple[Literal["v2"], Union[Literal["."], Literal["/"]]],
         ] = ("default", "/"),
         codecs: Optional[List[CodecMetadata]] = None,
-        storage_transformers: Optional[List[StorageTransformerMetadata]] = None,
     ) -> "Array":
         metadata = ArrayMetadata(
             shape=shape,
@@ -310,8 +366,7 @@ class Array:
                 )
             ),
             fill_value=fill_value,
-            codecs=Array.ensure_codecs(codecs or []),
-            storage_transformers=storage_transformers or [],
+            codecs=codecs or [],
         )
         array = cls()
         array.metadata = metadata
@@ -320,27 +375,14 @@ class Array:
         array._save_metadata()
         return array
 
-    @staticmethod
-    def ensure_codecs(codecs: List[CodecMetadata]) -> List[CodecMetadata]:
-        if not any(codec.name == "endian" for codec in codecs):
-            codecs.insert(
-                0,
-                EndianCodecMetadata(
-                    configuration=EndianCodecConfigurationMetadata(endian="little")
-                ),
-            )
-        if not any(codec.name == "transpose" for codec in codecs):
-            codecs.insert(
-                0,
-                TransposeCodecMetadata(
-                    configuration=TransposeCodecConfigurationMetadata(order="C")
-                ),
-            )
-        return codecs
-
     @classmethod
     def open(cls, store: "Store", path: str) -> "Array":
-        raise NotImplemented
+        metadata = ArrayMetadata(**json.loads(store.get(f"{path}/zarr.json")))
+        array = cls()
+        array.metadata = metadata
+        array.store = store
+        array.path = path
+        return array
 
     def _save_metadata(self) -> None:
         def convert(o):
@@ -380,39 +422,12 @@ class Array:
             indexer.shape, dtype=self.metadata.dtype, order=self._get_order()
         )
 
-        storage_transformers: List["Store"] = [self.store]
-
-        for storage_transformer_metadata in self.metadata.storage_transformers:
-            if storage_transformer_metadata.name == "sharding":
-                storage_transformers.insert(
-                    0,
-                    ShardingStorageTransformer(
-                        storage_transformer_metadata.configuration,
-                        self.metadata.chunk_key_encoding,
-                        storage_transformers[0],
-                        self.path,
-                    ),
-                )
-            else:
-                raise KeyError
-
-        indexed_chunks = list(indexer)
-        chunk_data = storage_transformers[0].multi_get(
-            [
-                (
-                    f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}",
-                    None,
-                )
-                for chunk_coords, _, _ in indexed_chunks
-            ]
-        )
-
         # iterate over chunks
-        for (_, chunk_selection, out_selection), encoded_chunk_data in zip(
-            indexed_chunks, chunk_data
-        ):
-            if encoded_chunk_data is not None:
-                chunk = self._decode_chunk(encoded_chunk_data)
+        for chunk_coords, chunk_selection, out_selection in indexer:
+            chunk_key = f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}"
+            value_handle = FileHandle(self.store, chunk_key)
+            chunk = self._decode_chunk(value_handle, chunk_selection)
+            if chunk is not None:
                 tmp = chunk[chunk_selection]
                 out[out_selection] = tmp
             elif self.metadata.fill_value is not None:
@@ -423,12 +438,24 @@ class Array:
         else:
             return out[()]
 
-    def _decode_chunk(self, encoded_data):
+    def _decode_chunk(
+        self, value_handle: ValueHandle, selection: Tuple[slice, ...]
+    ) -> Optional[np.ndarray]:
+        core_metadata = CoreArrayMetadata(
+            shape=self.metadata.shape,
+            chunk_shape=self.metadata.chunk_grid.configuration.chunk_shape,
+            data_type=self.metadata.data_type,
+            fill_value=self.metadata.fill_value,
+        )
+
         for codec_metadata in self.metadata.codecs[::-1]:
-            encoded_data = codec_metadata.decode_chunk(encoded_data, self.metadata)
+            value_handle = codec_metadata.decode(value_handle, selection, core_metadata)
 
         # view as numpy array with correct dtype
-        chunk = ensure_ndarray_like(encoded_data)
+        chunk = value_handle.toarray()
+        if chunk is None:
+            return None
+
         if str(chunk.dtype) != self.metadata.data_type.name:
             chunk = chunk.view(self.metadata.dtype)
 
@@ -472,28 +499,13 @@ class Array:
                 value = np.asarray(value, self.dtype)
             assert value.shape == sel_shape
 
-        storage_transformers: List["Store"] = [self.store]
-
-        for storage_transformer_metadata in self.metadata.storage_transformers:
-            if storage_transformer_metadata.name == "sharding":
-                storage_transformers.insert(
-                    0,
-                    ShardingStorageTransformer(
-                        storage_transformer_metadata.configuration,
-                        self.metadata.chunk_key_encoding,
-                        storage_transformers[0],
-                        self.path,
-                    ),
-                )
-            else:
-                raise KeyError
-
-        indexed_chunks = list(indexer)
-        chunk_values = []
-        for _, chunk_selection, out_selection in indexed_chunks:
+        for chunk_coords, chunk_selection, out_selection in indexer:
             assert _is_total_slice(
                 chunk_selection, self.metadata.chunk_grid.configuration.chunk_shape
             )
+            chunk_key = f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}"
+            value_handle = FileHandle(self.store, chunk_key)
+
             # extract data to store
             if sel_shape == ():
                 chunk_value = value
@@ -506,32 +518,24 @@ class Array:
                 chunk_value.fill(value)
             else:
                 chunk_value = value[out_selection]
-            chunk_value = self._encode_chunk(chunk_value)
+            chunk_value = self._encode_chunk(chunk_value, chunk_selection)
+            value_handle[:] = chunk_value
 
-            chunk_values.append(chunk_value)
-
-        storage_transformers[0].multi_set(
-            [
-                (
-                    f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}",
-                    chunk_value,
-                    None,
-                )
-                for (chunk_coords, _, _), chunk_value in zip(
-                    indexed_chunks, chunk_values
-                )
-            ]
+    def _encode_chunk(self, chunk_value: np.ndarray, selection: Tuple[slice, ...]):
+        core_metadata = CoreArrayMetadata(
+            shape=self.metadata.shape,
+            chunk_shape=self.metadata.chunk_grid.configuration.chunk_shape,
+            data_type=self.metadata.data_type,
+            fill_value=self.metadata.fill_value,
         )
-
-    def _encode_chunk(self, chunk_value):
-        encoded_chunk_value = chunk_value
+        encoded_chunk_value = ArrayHandle(chunk_value)
         for codec in self.metadata.codecs:
-            encoded_chunk_value = codec.encode_chunk(
-                encoded_chunk_value, self.metadata.chunk_grid.configuration.chunk_shape
+            encoded_chunk_value = codec.encode(
+                encoded_chunk_value,
+                selection,
+                core_metadata,
             )
 
-        if is_ndarray_like(encoded_chunk_value) and encoded_chunk_value.ndim > 1:
-            encoded_chunk_value = encoded_chunk_value.reshape(-1)
         return encoded_chunk_value
 
     def __repr__(self):

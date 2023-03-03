@@ -2,8 +2,12 @@ import zarrita
 import numpy as np
 import webknossos as wk
 
+from zarrita.sharding import morton_order_iter
+
 
 def test_sharding():
+    from timeit import default_timer as timer
+
     # ds = wk.Dataset.open_remote(
     #     "l4_sample",
     #     organization_id="scalable_minds",
@@ -19,31 +23,40 @@ def test_sharding():
             s,
             path,
             shape=data.shape,
-            chunk_shape=(32, 32, 32),
+            chunk_shape=(512, 512, 512),
             dtype=data.dtype,
             fill_value=0,
             codecs=[
-                zarrita.TransposeCodecMetadata(
-                    configuration=zarrita.TransposeCodecConfigurationMetadata(order="F")
-                ),
-                zarrita.BloscCodecMetadata(
-                    configuration=zarrita.BloscCodecConfigurationMetadata()
-                ),
-            ],
-            storage_transformers=[
-                zarrita.ShardingStorageTransformerMetadata(
-                    configuration=zarrita.ShardingStorageTransformerConfigurationMetadata(
-                        chunks_per_shard=(16, 16, 16)
+                zarrita.ShardingCodecMetadata(
+                    configuration=zarrita.ShardingCodecConfigurationMetadata(
+                        chunk_shape=(32, 32, 32),
+                        codecs=[
+                            zarrita.TransposeCodecMetadata(
+                                configuration=zarrita.TransposeCodecConfigurationMetadata(
+                                    order="F"
+                                )
+                            ),
+                            zarrita.BloscCodecMetadata(
+                                configuration=zarrita.BloscCodecConfigurationMetadata()
+                            ),
+                        ],
                     )
                 ),
             ],
         )
 
+        start = timer()
         a[:, :, :] = data
-        assert np.array_equal(data, a[:, :, :])
+        print("WRITE", timer() - start)
+
+        start = timer()
+        read_data = a[:, :, :]
+        print("READ", timer() - start)
+
+        assert np.array_equal(data, read_data)
 
     copy(ds.get_layer("color").get_mag(1).read()[0], "l4_sample/color/1")
-    copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
+    # copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
 
 
 def test_order_F():
@@ -114,3 +127,57 @@ def test_order_implicitC():
     assert np.array_equal(data, read_data)
     assert read_data.flags["C_CONTIGUOUS"]
     assert not read_data.flags["F_CONTIGUOUS"]
+
+
+def test_open():
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.open(s, "l4_sample/color/1")
+    print(a.metadata)
+
+
+def test_simple():
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "simple",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=0,
+    )
+
+    a[:, :] = data
+    assert np.array_equal(data, a[:, :])
+
+
+def test_morton():
+    assert list(morton_order_iter((2, 2))) == [(0, 0), (1, 0), (0, 1), (1, 1)]
+    assert list(morton_order_iter((2, 2, 2))) == [
+        (0, 0, 0),
+        (1, 0, 0),
+        (0, 1, 0),
+        (1, 1, 0),
+        (0, 0, 1),
+        (1, 0, 1),
+        (0, 1, 1),
+        (1, 1, 1),
+    ]
+    assert list(morton_order_iter((2, 2, 2, 2))) == [
+        (0, 0, 0, 0),
+        (1, 0, 0, 0),
+        (0, 1, 0, 0),
+        (1, 1, 0, 0),
+        (0, 0, 1, 0),
+        (1, 0, 1, 0),
+        (0, 1, 1, 0),
+        (1, 1, 1, 0),
+        (0, 0, 0, 1),
+        (1, 0, 0, 1),
+        (0, 1, 0, 1),
+        (1, 1, 0, 1),
+        (0, 0, 1, 1),
+        (1, 0, 1, 1),
+        (0, 1, 1, 1),
+        (1, 1, 1, 1),
+    ]

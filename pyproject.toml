@@ -1,3 +1,24 @@
+[tool.poetry]
+name = "zarrita"
+version = "0.1.0"
+description = ""
+authors = ["Norman Rzepka <code@normanrz.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.8,<3.11"
+fsspec = "^2022.2.0"
+numpy = "^1.24.2"
+numcodecs = "^0.10.0"
+
+[tool.poetry.group.dev.dependencies]
+webknossos = "^0.12.3"
+pytest = "^7.2.1"
+black = "^23.1.0"
+mypy = "^1.0.1"
+pylint = "^2.16.3"
+
 [build-system]
-requires = ["setuptools", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

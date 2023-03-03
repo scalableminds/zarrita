@@ -1,6 +1,143 @@
-from typing import List, Optional, Tuple
+from attrs import define
+from typing import List, Optional, Tuple, Union
+from abc import abstractmethod
 
 import fsspec
+import numpy as np
+
+
+class ValueHandle:
+    @abstractmethod
+    def __setitem__(
+        self,
+        selection: Union[slice, Tuple[slice, ...]],
+        value: "ValueHandle",
+    ):
+        pass
+
+    @abstractmethod
+    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> "ValueHandle":
+        pass
+
+    @abstractmethod
+    def tobytes(self) -> Optional[bytes]:
+        pass
+
+    @abstractmethod
+    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+        pass
+
+
+class FileHandle(ValueHandle):
+    store: "Store"
+    path: str
+
+    def __init__(self, store: "Store", path: str):
+        super().__init__()
+        self.store = store
+        self.path = path
+
+    def __setitem__(
+        self,
+        selection: Union[slice, Tuple[slice, ...]],
+        value: ValueHandle,
+    ):
+        assert isinstance(selection, slice)
+        if selection.start is None and selection.stop is None:
+            self.store.set(self.path, value.tobytes())
+        else:
+            self.store.set(
+                self.path, value.tobytes(), (selection.start, selection.stop)
+            )
+
+    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
+        assert isinstance(selection, slice)
+        buf = self.store.get(self.path, (selection.start, selection.stop))
+        if buf is not None:
+            return BufferHandle(buf)
+        return NoneHandle()
+
+    def tobytes(self) -> Optional[bytes]:
+        return self.store.get(self.path)
+
+    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+        buf = self.tobytes()
+        if buf is not None:
+            return np.frombuffer(self.tobytes())
+        return None
+
+
+class BufferHandle(ValueHandle):
+    buf: bytes
+
+    def __init__(self, buf: bytes) -> None:
+        super().__init__()
+        self.buf = buf
+
+    def __setitem__(
+        self,
+        selection: Union[slice, Tuple[slice, ...]],
+        value: ValueHandle,
+    ):
+        assert isinstance(selection, slice)
+        if selection.start is None and selection.stop is None:
+            self.buf = value.tobytes()
+        else:
+            self.buf[selection] = value.tobytes()
+
+    def __getitem__(
+        self, selection: Union[slice, Tuple[slice, ...]]
+    ) -> Optional[ValueHandle]:
+        assert isinstance(selection, slice)
+        return BufferHandle(self.buf[selection])
+
+    def tobytes(self) -> Optional[bytes]:
+        return self.buf
+
+    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+        return np.frombuffer(self.buf)
+
+
+class ArrayHandle(ValueHandle):
+    buf: np.ndarray
+
+    def __init__(self, buf: np.ndarray) -> None:
+        super().__init__()
+        self.buf = buf
+
+    def __setitem__(
+        self,
+        selection: Union[slice, Tuple[slice, ...]],
+        value: ValueHandle,
+    ):
+        self.buf[selection] = value.toarray()
+
+    def __getitem__(
+        self, selection: Union[slice, Tuple[slice, ...]]
+    ) -> Optional[ValueHandle]:
+        return ArrayHandle(self.buf[selection])
+
+    def tobytes(self) -> Optional[bytes]:
+        return self.buf.tobytes()
+
+    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+        return self.buf
+
+
+class NoneHandle(ValueHandle):
+    def __setitem__(
+        self, selection: Union[slice, Tuple[slice, ...]], value: ValueHandle
+    ):
+        raise NotImplemented
+
+    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
+        return self
+
+    def tobytes(self) -> Optional[bytes]:
+        return None
+
+    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+        return None
 
 
 class Store:
