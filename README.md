@@ -55,7 +55,7 @@ a[:, :] = data
 assert np.array_equal(a[:, :], data)
 ```
 
-# Create a group
+## Create a group
 
 ```python
 g = zarrita.Group.create(store, 'group')
@@ -69,7 +69,7 @@ a = g2.create_array(
 a[:, :] = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
 ```
 
-# Open a group
+## Open a group
 
 ```python
 g = zarrita.Group.open(store, 'group')
@@ -78,11 +78,8 @@ a = g['group2/array']
 assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
 ```
 
-## TODO
+# Credits
 
-- [x] Non-full chunks
-- [x] fill-value
-- [x] delete empty chunks
-- [x] delete empty chunks in shards
-- [x] delete empty shards
-- [x] frozen
+This is a fork of `zarrita` by @alimanfoo. It implements the Zarr v3 specification created by @alimanfoo, @jstriebel, @jbms et al.
+
+Licensed under MIT
