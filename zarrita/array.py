@@ -106,6 +106,10 @@ class CoreArrayMetadata:
     data_type: DataType
     fill_value: Any
 
+    @property
+    def dtype(self) -> np.dtype:
+        return np.dtype(self.data_type.value)
+
 
 @frozen
 class ArrayMetadata:
@@ -214,7 +218,7 @@ class Array:
     def ndim(self) -> int:
         return len(self.metadata.shape)
 
-    def __getitem__(self, selection):
+    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]):
         indexer = BasicIndexer(
             selection,
             shape=self.metadata.shape,
@@ -271,11 +275,14 @@ class Array:
 
         return chunk
 
-    def __setitem__(self, selection, value):
+    def __setitem__(
+        self, selection: Union[slice, Tuple[slice, ...]], value: np.ndarray
+    ) -> None:
+        chunk_shape = self.metadata.chunk_grid.configuration.chunk_shape
         indexer = BasicIndexer(
             selection,
             shape=self.metadata.shape,
-            chunk_shape=self.metadata.chunk_grid.configuration.chunk_shape,
+            chunk_shape=chunk_shape,
         )
 
         sel_shape = indexer.shape
@@ -289,54 +296,53 @@ class Array:
             pass
         else:
             if not hasattr(value, "shape"):
-                value = np.asarray(value, self.dtype)
+                value = np.asarray(value, self.metadata.dtype)
             assert value.shape == sel_shape
 
-        chunk: np.ndarray
         for chunk_coords, chunk_selection, out_selection in indexer:
             chunk_key = f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}"
             value_handle = FileHandle(self.store, chunk_key)
-            if _is_total_slice(
-                chunk_selection, self.metadata.chunk_grid.configuration.chunk_shape
-            ):
+            if _is_total_slice(chunk_selection, chunk_shape):
                 # extract data to store
                 if sel_shape == ():
                     chunk = value
                 elif np.isscalar(value):
                     chunk = np.empty(
-                        self.metadata.chunk_grid.configuration.chunk_shape,
-                        dtype=self.metadata.dtypes,
+                        chunk_shape,
+                        dtype=self.metadata.dtype,
                         order="C",
                     )
                     chunk.fill(value)
                 else:
-                    chunk = value[out_selection]
+                    chunk = value[out_selection].astype(
+                        self.metadata.dtype, order="C", copy=False
+                    )
             else:
                 # Read full chunk, if it exists
-                chunk = self._decode_chunk(
+                tmp = self._decode_chunk(
                     value_handle,
-                    tuple(
-                        slice(0, c)
-                        for c in self.metadata.chunk_grid.configuration.chunk_shape
-                    ),
+                    tuple(slice(0, c) for c in chunk_shape),
                 )
-                if chunk is None:
+                if tmp is None:
                     chunk = np.empty(
-                        self.metadata.chunk_grid.configuration.chunk_shape,
+                        chunk_shape,
                         dtype=self.metadata.dtype,
                         order="C",
                     )
                     if self.metadata.fill_value:
                         chunk.fill(self.metadata.fill_value)
                 else:
-                    chunk = chunk.copy()  # make a writable copy
+                    chunk = tmp.copy()  # make a writable copy
                 chunk[chunk_selection] = value[out_selection]
 
             chunk_value: ValueHandle
             if self.metadata.fill_value and np.all(chunk == self.metadata.fill_value):
                 chunk_value = NoneHandle()
             else:
-                chunk_value = self._encode_chunk(chunk, chunk_selection)
+                chunk_value = self._encode_chunk(
+                    chunk,
+                    tuple(slice(0, c) for c in chunk_shape),
+                )
             value_handle[:] = chunk_value
 
     def _encode_chunk(self, chunk_value: np.ndarray, selection: Tuple[slice, ...]):

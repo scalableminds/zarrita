@@ -3,7 +3,6 @@ from typing import List, Optional, Tuple, Union
 
 import fsspec
 import numpy as np
-from attrs import define
 
 
 class ValueHandle:
@@ -105,27 +104,30 @@ class BufferHandle(ValueHandle):
 
 
 class ArrayHandle(ValueHandle):
-    buf: np.ndarray
+    array: np.ndarray
 
-    def __init__(self, buf: np.ndarray) -> None:
+    def __init__(self, array: np.ndarray) -> None:
         super().__init__()
-        self.buf = buf
+        self.array = array
 
     def __setitem__(
         self,
         selection: Union[slice, Tuple[slice, ...]],
         value: ValueHandle,
     ):
-        self.buf[selection] = value.toarray()
+        self.array[selection] = value.toarray()
 
     def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
-        return ArrayHandle(self.buf[selection])
+        return ArrayHandle(self.array[selection])
 
     def tobytes(self) -> Optional[bytes]:
-        return self.buf.tobytes()
+        array = self.array
+        if not array.flags.c_contiguous and not array.flags.f_contiguous:
+            array = array.copy(order="K")
+        return array.tobytes()
 
     def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
-        return self.buf
+        return self.array
 
 
 class NoneHandle(ValueHandle):

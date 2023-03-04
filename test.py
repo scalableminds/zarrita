@@ -1,19 +1,20 @@
+from shutil import rmtree
+
 import numpy as np
 import webknossos as wk
+from pytest import fixture
 
 import zarrita
 from zarrita.sharding import morton_order_iter
 
 
+@fixture(autouse=True, scope="module")
+def clean_folder():
+    rmtree("testdata", ignore_errors=True)
+
+
 def test_sharding():
-    # ds = wk.Dataset.open_remote(
-    #     "l4_sample",
-    #     organization_id="scalable_minds",
-    #     webknossos_url="https://webknossos.org",
-    # )
-    ds = wk.Dataset.open(
-        "/Users/norman/scalableminds/webknossos/binaryData/sample_organization/l4_sample"
-    )
+    ds = wk.Dataset.open("l4_sample")
 
     def copy(data, path):
         s = zarrita.FileSystemStore("file://./testdata")
@@ -181,16 +182,61 @@ def test_group():
     assert isinstance(g["group2"], zarrita.Group)
 
 
-def test_write_non_full_chunks():
+def test_write_partial_chunks():
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
     s = zarrita.FileSystemStore("file://./testdata")
     a = zarrita.Array.create(
         s,
-        "write_non_full_chunks",
+        "write_partial_chunks",
         shape=data.shape,
         chunk_shape=(20, 20),
         dtype=data.dtype,
         fill_value=1,
+    )
+    a[0:16, 0:16] = data
+    assert np.array_equal(a[0:16, 0:16], data)
+
+
+def test_write_full_chunks():
+    data = np.arange(0, 16 * 16, dtype="uint16").reshape((16, 16))
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "write_full_chunks",
+        shape=(16, 16),
+        chunk_shape=(20, 20),
+        dtype=data.dtype,
+        fill_value=1,
+    )
+    a[0:16, 0:16] = data
+    assert np.array_equal(a[0:16, 0:16], data)
+
+    a = zarrita.Array.create(
+        s,
+        "write_full_chunks",
+        shape=(20, 20),
+        chunk_shape=(20, 20),
+        dtype=data.dtype,
+        fill_value=1,
+    )
+    assert np.all(a[16:20, 16:20] == 1)
+
+
+def test_write_partial_sharded_chunks():
+    data = np.arange(0, 16 * 16, dtype="uint16").reshape((16, 16))
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "write_partial_sharded_chunks",
+        shape=(40, 40),
+        chunk_shape=(20, 20),
+        dtype=data.dtype,
+        fill_value=1,
+        codecs=[
+            zarrita.codecs.sharding_codec(
+                chunk_shape=(10, 10), codecs=[zarrita.codecs.blosc_codec()]
+            )
+        ],
     )
     a[0:16, 0:16] = data
     assert np.array_equal(a[0:16, 0:16], data)
@@ -211,3 +257,29 @@ def test_delete_empty_chunks():
     a[0:16, 0:16] = data
     assert np.array_equal(a[0:16, 0:16], data)
     assert s.get("delete_empty_chunks/c0/0") == None
+
+
+def test_delete_empty_sharded_chunks():
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "delete_empty_sharded_chunks",
+        shape=(16, 16),
+        chunk_shape=(8, 16),
+        dtype="uint16",
+        fill_value=1,
+        codecs=[zarrita.codecs.sharding_codec(chunk_shape=(8, 8))],
+    )
+    a[:, :] = np.zeros((16, 16))
+    a[8:, :] = np.ones((8, 16))
+    a[:, 8:] = np.ones((16, 8))
+    # chunk (0, 0) is full
+    # chunks (0, 1), (1, 0), (1, 1) are empty
+    # shard (0, 0) is half-full
+    # shard (1, 0) is empty
+
+    data = np.ones((16, 16), dtype="uint16")
+    data[:8, :8] = 0
+    assert np.array_equal(data, a[:, :])
+    assert s.get("delete_empty_sharded_chunks/c1/0") == None
+    assert len(s.get("delete_empty_sharded_chunks/c0/0")) == 16 * 2 + 8 * 8 * 2

@@ -80,7 +80,9 @@ assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16,
 
 ## TODO
 
-- [] Non-full chunks
-- [] fill-value
-- [] delete empty chunks
+- [x] Non-full chunks
+- [x] fill-value
+- [x] delete empty chunks
+- [x] delete empty chunks in shards
+- [x] delete empty shards
 - [x] frozen
