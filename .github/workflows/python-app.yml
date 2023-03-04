@@ -21,8 +21,10 @@ jobs:
     - name: Type check with mypy
       run: |
         poetry run python -m mypy -p zarrita
-    - name: Run tests
+    - name: Download sample data
       run: |
         wget https://static.webknossos.org/data/l4_sample.zip
         unzip l4_sample.zip
+    - name: Run tests
+      run: |
         poetry run pytest -vv test.py
