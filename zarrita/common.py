@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 ZARR_JSON = "zarr.json"
 
 
-def _is_total_slice(item, shape):
+def is_total_slice(item, shape):
     """Determine whether `item` specifies a complete slice of array with the
     given `shape`. Used to optimize __setitem__ operations on the Chunk
     class."""

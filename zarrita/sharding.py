@@ -17,9 +17,9 @@ from typing import (
 import numpy as np
 from attrs import field, frozen
 
-from zarrita.common import _is_total_slice, get_order
+from zarrita.common import get_order, is_total_slice
 from zarrita.indexing import BasicIndexer
-from zarrita.store import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
+from zarrita.value_handle import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
 
 if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
@@ -45,6 +45,8 @@ def c_order_iter(chunk_shape: Tuple[int, ...]) -> Iterator[Tuple[int, ...]]:
 
 def morton_order_iter(chunk_shape: Tuple[int, ...]) -> Iterator[Tuple[int, ...]]:
     def decode_morton(z: int, chunk_shape: Tuple[int, ...]) -> Tuple[int, ...]:
+        # Inspired by compressed morton code as implemented in Neuroglancer
+        # https://github.com/google/neuroglancer/blob/master/src/neuroglancer/datasource/precomputed/volume.md#compressed-morton-code
         bits = tuple(math.ceil(math.log2(c)) for c in chunk_shape)
         max_coords_bits = max(*bits)
         input_bit = 0
@@ -67,7 +69,7 @@ class _ShardIndex(NamedTuple):
     # dtype uint64, shape (chunks_per_shard_0, chunks_per_shard_1, ..., 2)
     offsets_and_lengths: np.ndarray
 
-    def __localize_chunk__(self, chunk: Tuple[int, ...]) -> Tuple[int, ...]:
+    def _localize_chunk(self, chunk: Tuple[int, ...]) -> Tuple[int, ...]:
         return tuple(
             chunk_i % shard_i
             for chunk_i, shard_i in zip(chunk, self.offsets_and_lengths.shape)
@@ -77,7 +79,7 @@ class _ShardIndex(NamedTuple):
         return np.array_equiv(self.offsets_and_lengths, MAX_UINT_64)
 
     def get_chunk_slice(self, chunk: Tuple[int, ...]) -> Optional[slice]:
-        localized_chunk = self.__localize_chunk__(chunk)
+        localized_chunk = self._localize_chunk(chunk)
         chunk_start, chunk_len = self.offsets_and_lengths[localized_chunk]
         if (chunk_start, chunk_len) == (MAX_UINT_64, MAX_UINT_64):
             return None
@@ -87,7 +89,7 @@ class _ShardIndex(NamedTuple):
     def set_chunk_slice(
         self, chunk: Tuple[int, ...], chunk_slice: Optional[slice]
     ) -> None:
-        localized_chunk = self.__localize_chunk__(chunk)
+        localized_chunk = self._localize_chunk(chunk)
         if chunk_slice is None:
             self.offsets_and_lengths[localized_chunk] = (MAX_UINT_64, MAX_UINT_64)
         else:
@@ -143,27 +145,36 @@ class ShardingCodecMetadata:
         selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
+        if isinstance(value_handle, NoneHandle):
+            return NoneHandle()
+
         shard_shape = array_metadata.chunk_shape
         chunk_shape = self.configuration.chunk_shape
+        chunks_per_shard = tuple(s // c for s, c in zip(shard_shape, chunk_shape))
+
         indexer = BasicIndexer(
             selection,
             shape=shard_shape,
             chunk_shape=chunk_shape,
         )
 
+        # setup output array
         out = np.zeros(
             shard_shape,
             dtype=array_metadata.dtype,
             order=get_order(self.configuration.codecs),
         )
-        chunks_per_shard = tuple(s // c for s, c in zip(shard_shape, chunk_shape))
 
         indexed_chunks = list(indexer)
         all_chunk_coords = set(chunk_coords for chunk_coords, _, _ in indexed_chunks)
+
+        # reading bytes of all requested chunks
         shard_dict: Dict[Tuple[int, ...], ValueHandle] = {}
         if self._is_total_shard(all_chunk_coords, chunks_per_shard):
+            # read entire shard
             shard_dict = self._load_full_shard(value_handle, chunks_per_shard)
         else:
+            # read some chunks within the shard
             shard_index = self._load_shard_index(value_handle, chunks_per_shard)
             shard_dict = {}
             for chunk_coords in all_chunk_coords:
@@ -173,6 +184,7 @@ class ShardingCodecMetadata:
                     if chunk_bytes:
                         shard_dict[chunk_coords] = BufferHandle(chunk_bytes)
 
+        # decoding chunks and writing them into the output buffer
         for chunk_coords, chunk_selection, out_selection in indexed_chunks:
             chunk_value = shard_dict.get(chunk_coords, NoneHandle())
             chunk = self._decode_chunk(chunk_value, chunk_selection, array_metadata)
@@ -195,20 +207,23 @@ class ShardingCodecMetadata:
 
         from zarrita.array import CoreArrayMetadata
 
+        # rewriting the metadata to scope it to the shard
         core_metadata = CoreArrayMetadata(
             shape=array_metadata.chunk_shape,
             chunk_shape=self.configuration.chunk_shape,
             data_type=array_metadata.data_type,
             fill_value=array_metadata.fill_value,
         )
+
+        # applying codecs in reverse order
         for codec_metadata in self.configuration.codecs[::-1]:
             value_handle = codec_metadata.decode(value_handle, selection, core_metadata)
 
-        # view as numpy array with correct dtype
         chunk = value_handle.toarray()
         if chunk is None:
             return None
 
+        # ensure correct dtype
         if str(chunk.dtype) != array_metadata.data_type.name:
             chunk = chunk.view(np.dtype(array_metadata.data_type.name))
 
@@ -224,10 +239,13 @@ class ShardingCodecMetadata:
         selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        shard_value = value.toarray()
-        assert isinstance(shard_value, np.ndarray)
+        shard = value.toarray()
+        if shard is None:
+            return NoneHandle()
+
         shard_shape = array_metadata.chunk_shape
         chunk_shape = self.configuration.chunk_shape
+        chunks_per_shard = tuple(s // c for s, c in zip(shard_shape, chunk_shape))
 
         indexer = list(
             BasicIndexer(
@@ -236,20 +254,18 @@ class ShardingCodecMetadata:
                 chunk_shape=chunk_shape,
             )
         )
-        chunks_per_shard = tuple(
-            s // c
-            for s, c in zip(
-                shard_shape,
-                chunk_shape,
-            )
+
+        assert self._is_total_shard(
+            set(chunk_coords for chunk_coords, _, _ in indexer), chunks_per_shard
         )
 
-        all_chunk_coords = set(chunk_coords for chunk_coords, _, _ in indexer)
+        # assembling and encoding chunks within the shard
         shard_dict: Dict[Tuple[int, ...], ValueHandle] = {}
         for chunk_coords, chunk_selection, out_selection in indexer:
-            if _is_total_slice(chunk_selection, chunk_shape):
-                chunk = shard_value[out_selection]
+            if is_total_slice(chunk_selection, chunk_shape):
+                chunk = shard[out_selection]
             else:
+                # handling writing partial chunks
                 chunk = np.empty(
                     chunk_shape,
                     dtype=array_metadata.dtype,
@@ -257,19 +273,13 @@ class ShardingCodecMetadata:
                 )
                 if array_metadata.fill_value:
                     chunk.fill(array_metadata.fill_value)
-                chunk[chunk_selection] = shard_value[out_selection]
+                chunk[chunk_selection] = shard[out_selection]
             if array_metadata.fill_value and np.all(chunk == array_metadata.fill_value):
                 shard_dict[chunk_coords] = NoneHandle()
             else:
                 shard_dict[chunk_coords] = self._encode_chunk(
                     chunk, chunk_selection, array_metadata
                 )
-
-        assert self._is_total_shard(all_chunk_coords, chunks_per_shard)
-        # if not self._is_total_shard(all_chunk_coords, chunks_per_shard):
-        #     full_shard_dict = self._load_full_shard(target, chunks_per_shard)
-        #     full_shard_dict.update(shard_dict)
-        #     shard_dict = full_shard_dict
 
         if all(
             isinstance(chunk_value, NoneHandle) for chunk_value in shard_dict.values()
@@ -285,12 +295,14 @@ class ShardingCodecMetadata:
     ):
         from zarrita.array import CoreArrayMetadata
 
+        # rewriting the metadata to scope it to the shard
         core_metadata = CoreArrayMetadata(
             shape=array_metadata.chunk_shape,
             chunk_shape=self.configuration.chunk_shape,
             data_type=array_metadata.data_type,
             fill_value=array_metadata.fill_value,
         )
+
         encoded_chunk_value: ValueHandle = ArrayHandle(chunk)
         for codec in self.configuration.codecs:
             encoded_chunk_value = codec.encode(
@@ -329,6 +341,8 @@ class ShardingCodecMetadata:
             chunk_coords: chunk_value.tobytes()
             for chunk_coords, chunk_value in shard_dict.items()
         }
+
+        # output buffer
         shard_bytes = bytearray(
             sum(
                 len(chunk_bytes)
@@ -337,6 +351,8 @@ class ShardingCodecMetadata:
             )
             + shard_index.byte_length
         )
+
+        # write chunks within shard in morton order
         byte_offset = 0
         for chunk_coords in morton_order_iter(chunks_per_shard):
             chunk_bytes = byte_shard_dict.get(chunk_coords, None)
@@ -368,12 +384,7 @@ class ShardingCodecMetadata:
                     shard_dict[chunk_coords] = BufferHandle(
                         shard_bytes[chunk_byte_slice]
                     )
-                else:
-                    shard_dict[chunk_coords] = NoneHandle()
 
             return shard_dict
         else:
-            return {
-                chunk_coords: NoneHandle()
-                for chunk_coords in c_order_iter(chunks_per_shard)
-            }
+            return {}

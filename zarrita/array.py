@@ -7,9 +7,10 @@ from attr import asdict, field, frozen
 from cattrs import register_structure_hook, structure
 
 from zarrita.codecs import CodecMetadata
-from zarrita.common import ZARR_JSON, _is_total_slice, get_order
+from zarrita.common import ZARR_JSON, get_order, is_total_slice
 from zarrita.indexing import BasicIndexer
-from zarrita.store import ArrayHandle, FileHandle, NoneHandle, Store, ValueHandle
+from zarrita.store import Store
+from zarrita.value_handle import ArrayHandle, FileHandle, NoneHandle, ValueHandle
 
 
 class DataType(Enum):
@@ -232,7 +233,7 @@ class Array:
             order=get_order(self.metadata.codecs),
         )
 
-        # iterate over chunks
+        # reading chunks and decoding them
         for chunk_coords, chunk_selection, out_selection in indexer:
             chunk_key = f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}"
             value_handle = FileHandle(self.store, chunk_key)
@@ -251,6 +252,9 @@ class Array:
     def _decode_chunk(
         self, value_handle: ValueHandle, selection: Tuple[slice, ...]
     ) -> Optional[np.ndarray]:
+        if isinstance(value_handle, NoneHandle):
+            return None
+
         core_metadata = CoreArrayMetadata(
             shape=self.metadata.shape,
             chunk_shape=self.metadata.chunk_grid.configuration.chunk_shape,
@@ -258,14 +262,15 @@ class Array:
             fill_value=self.metadata.fill_value,
         )
 
+        # apply codecs in reverse order
         for codec_metadata in self.metadata.codecs[::-1]:
             value_handle = codec_metadata.decode(value_handle, selection, core_metadata)
 
-        # view as numpy array with correct dtype
         chunk = value_handle.toarray()
         if chunk is None:
             return None
 
+        # ensure correct dtype
         if str(chunk.dtype) != self.metadata.data_type.name:
             chunk = chunk.view(self.metadata.dtype)
 
@@ -299,11 +304,13 @@ class Array:
                 value = np.asarray(value, self.metadata.dtype)
             assert value.shape == sel_shape
 
+        # merging with existing data and encoding chunks
         for chunk_coords, chunk_selection, out_selection in indexer:
             chunk_key = f"{self.path}/{self.metadata.chunk_key_encoding.encode_chunk_key(chunk_coords)}"
             value_handle = FileHandle(self.store, chunk_key)
-            if _is_total_slice(chunk_selection, chunk_shape):
-                # extract data to store
+
+            if is_total_slice(chunk_selection, chunk_shape):
+                # write entire chunks
                 if sel_shape == ():
                     chunk = value
                 elif np.isscalar(value):
@@ -318,11 +325,14 @@ class Array:
                         self.metadata.dtype, order="C", copy=False
                     )
             else:
-                # Read full chunk, if it exists
+                # writing partial chunks
+                # read chunk first
                 tmp = self._decode_chunk(
                     value_handle,
                     tuple(slice(0, c) for c in chunk_shape),
                 )
+
+                # merge new value
                 if tmp is None:
                     chunk = np.empty(
                         chunk_shape,
@@ -332,17 +342,20 @@ class Array:
                     if self.metadata.fill_value:
                         chunk.fill(self.metadata.fill_value)
                 else:
-                    chunk = tmp.copy()  # make a writable copy
+                    chunk = tmp.copy(order="K")  # make a writable copy
                 chunk[chunk_selection] = value[out_selection]
 
             chunk_value: ValueHandle
             if self.metadata.fill_value and np.all(chunk == self.metadata.fill_value):
+                # chunks that only contain fill_value will be removed
                 chunk_value = NoneHandle()
             else:
                 chunk_value = self._encode_chunk(
                     chunk,
                     tuple(slice(0, c) for c in chunk_shape),
                 )
+
+            # write out chunk
             value_handle[:] = chunk_value
 
     def _encode_chunk(self, chunk_value: np.ndarray, selection: Tuple[slice, ...]):
@@ -367,7 +380,9 @@ class Array:
         return f"<Array {path}>"
 
 
-def structure_codec_metadata(d: Dict[str, Any], _t) -> ChunkKeyEncodingMetadata:
+def _structure_chunk_key_encoding_metadata(
+    d: Dict[str, Any], _t
+) -> ChunkKeyEncodingMetadata:
     if d["name"] == "default":
         return structure(d, DefaultChunkKeyEncodingMetadata)
     if d["name"] == "v2":
@@ -375,4 +390,6 @@ def structure_codec_metadata(d: Dict[str, Any], _t) -> ChunkKeyEncodingMetadata:
     raise KeyError
 
 
-register_structure_hook(ChunkKeyEncodingMetadata, structure_codec_metadata)
+register_structure_hook(
+    ChunkKeyEncodingMetadata, _structure_chunk_key_encoding_metadata
+)

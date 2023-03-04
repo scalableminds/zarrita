@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Tuple, Union
 
 import numpy as np
 from attr import asdict, frozen
@@ -7,11 +7,44 @@ from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
 
 from zarrita.sharding import ShardingCodecConfigurationMetadata, ShardingCodecMetadata
+from zarrita.value_handle import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
 
 if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
 
-from zarrita.store import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
+
+def _needs_bytes(
+    f: Callable[[Any, bytes, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]
+) -> Callable[[Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]:
+    def inner(
+        _self,
+        value: ValueHandle,
+        selection: Tuple[slice, ...],
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        buf = value.tobytes()
+        if buf is None:
+            return NoneHandle()
+        return f(_self, buf, selection, array_metadata)
+
+    return inner
+
+
+def _needs_array(
+    f: Callable[[Any, np.ndarray, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]
+) -> Callable[[Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]:
+    def inner(
+        _self,
+        value: ValueHandle,
+        selection: Tuple[slice, ...],
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        array = value.toarray()
+        if array is None:
+            return NoneHandle()
+        return f(_self, array, selection, array_metadata)
+
+    return inner
 
 
 @frozen
@@ -27,26 +60,22 @@ class BloscCodecMetadata:
     configuration: BloscCodecConfigurationMetadata
     name: Literal["blosc"] = "blosc"
 
+    @_needs_bytes
     def decode(
         self,
-        value: ValueHandle,
+        buf: bytes,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        buf = value.tobytes()
-        if buf is None:
-            return NoneHandle()
         return BufferHandle(Blosc.from_config(asdict(self.configuration)).decode(buf))
 
+    @_needs_array
     def encode(
         self,
-        value: ValueHandle,
+        chunk: np.ndarray,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        chunk = value.toarray()
-        if chunk is None:
-            return NoneHandle()
         if not chunk.flags.c_contiguous and not chunk.flags.f_contiguous:
             chunk = chunk.copy(order="K")
         return BufferHandle(Blosc.from_config(asdict(self.configuration)).encode(chunk))
@@ -72,29 +101,25 @@ class EndianCodecMetadata:
 
             return sys.byteorder
 
+    @_needs_array
     def decode(
         self,
-        value: ValueHandle,
+        chunk: np.ndarray,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        chunk = value.toarray()
-        if chunk is None:
-            return NoneHandle()
         byteorder = self._get_byteorder(chunk)
         if self.configuration.endian != byteorder:
             chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
         return ArrayHandle(chunk)
 
+    @_needs_array
     def encode(
         self,
-        value: ValueHandle,
+        chunk: np.ndarray,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        chunk = value.toarray()
-        if chunk is None:
-            return NoneHandle()
         byteorder = self._get_byteorder(chunk)
         if self.configuration.endian != byteorder:
             chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
@@ -111,15 +136,13 @@ class TransposeCodecMetadata:
     configuration: TransposeCodecConfigurationMetadata
     name: Literal["transpose"] = "transpose"
 
+    @_needs_array
     def decode(
         self,
-        value: ValueHandle,
+        chunk: np.ndarray,
         _selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        chunk = value.toarray()
-        if chunk is None:
-            return NoneHandle()
         new_order = self.configuration.order
         chunk = chunk.view(np.dtype(array_metadata.data_type.value))
         if isinstance(new_order, tuple):
@@ -131,15 +154,13 @@ class TransposeCodecMetadata:
             )
         return ArrayHandle(chunk)
 
+    @_needs_array
     def encode(
         self,
-        value: ValueHandle,
+        chunk: np.ndarray,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        chunk = value.toarray()
-        if chunk is None:
-            return NoneHandle()
         new_order = self.configuration.order
         if isinstance(new_order, tuple):
             chunk = chunk.reshape(-1, order="C")
@@ -158,26 +179,22 @@ class GzipCodecMetadata:
     configuration: GzipCodecConfigurationMetadata
     name: Literal["gzip"] = "gzip"
 
+    @_needs_bytes
     def decode(
         self,
-        value: ValueHandle,
+        buf: bytes,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        buf = value.tobytes()
-        if buf is None:
-            return NoneHandle()
         return BufferHandle(GZip(self.configuration.level).decode(buf))
 
+    @_needs_bytes
     def encode(
         self,
-        value: ValueHandle,
+        buf: bytes,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        buf = value.tobytes()
-        if buf is None:
-            return NoneHandle()
         return BufferHandle(GZip(self.configuration.level).encode(buf))
 
 
@@ -227,7 +244,7 @@ def sharding_codec(
     )
 
 
-def structure_codec_metadata(d: Dict[str, Any], _t) -> CodecMetadata:
+def _structure_codec_metadata(d: Dict[str, Any], _t) -> CodecMetadata:
     if d["name"] == "blosc":
         return structure(d, BloscCodecMetadata)
     if d["name"] == "endian":
@@ -241,4 +258,4 @@ def structure_codec_metadata(d: Dict[str, Any], _t) -> CodecMetadata:
     raise KeyError
 
 
-register_structure_hook(CodecMetadata, structure_codec_metadata)
+register_structure_hook(CodecMetadata, _structure_codec_metadata)
