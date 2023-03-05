@@ -4,10 +4,9 @@ from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from attr import asdict, field, frozen
-from cattrs import register_structure_hook, structure
 
 from zarrita.codecs import CodecMetadata
-from zarrita.common import ZARR_JSON, get_order, is_total_slice
+from zarrita.common import ZARR_JSON, get_order, is_total_slice, make_cattr
 from zarrita.indexing import BasicIndexer
 from zarrita.store import Store
 from zarrita.value_handle import ArrayHandle, FileHandle, NoneHandle, ValueHandle
@@ -199,7 +198,7 @@ class Array:
     @classmethod
     def from_json(cls, store: Store, path: str, zarr_json: Any) -> "Array":
         array = cls()
-        array.metadata = structure(zarr_json, ArrayMetadata)
+        array.metadata = make_cattr().structure(zarr_json, ArrayMetadata)
         array.store = store
         array.path = path
         return array
@@ -378,18 +377,3 @@ class Array:
     def __repr__(self):
         path = self.path
         return f"<Array {path}>"
-
-
-def _structure_chunk_key_encoding_metadata(
-    d: Dict[str, Any], _t
-) -> ChunkKeyEncodingMetadata:
-    if d["name"] == "default":
-        return structure(d, DefaultChunkKeyEncodingMetadata)
-    if d["name"] == "v2":
-        return structure(d, V2ChunkKeyEncodingMetadata)
-    raise KeyError
-
-
-register_structure_hook(
-    ChunkKeyEncodingMetadata, _structure_chunk_key_encoding_metadata
-)

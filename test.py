@@ -2,8 +2,8 @@ from shutil import rmtree
 
 import numpy as np
 import webknossos as wk
-from pytest import fixture
 import zarr
+from pytest import fixture
 
 import zarrita
 from zarrita.sharding import morton_order_iter
@@ -324,7 +324,7 @@ def test_zarr_compat_F():
     s = zarrita.FileSystemStore("file://./testdata")
     a = zarrita.Array.create(
         s,
-        "zarr_compat3",
+        "zarr_compatF3",
         shape=data.shape,
         chunk_shape=(10, 10),
         dtype=data.dtype,
@@ -340,7 +340,7 @@ def test_zarr_compat_F():
         compressor=None,
         order="F",
         fill_value=1,
-        store="testdata/zarr_compat2",
+        store="testdata/zarr_compatF2",
     )
 
     a[:16, :18] = data
@@ -348,7 +348,7 @@ def test_zarr_compat_F():
     assert np.array_equal(data, a[:16, :18])
     assert np.array_equal(data, z2[:16, :18])
 
-    assert s.get("zarr_compat2/0.0") == s.get("zarr_compat3/0.0")
-    assert s.get("zarr_compat2/0.1") == s.get("zarr_compat3/0.1")
-    assert s.get("zarr_compat2/1.0") == s.get("zarr_compat3/1.0")
-    assert s.get("zarr_compat2/1.1") == s.get("zarr_compat3/1.1")
+    assert s.get("zarr_compatF2/0.0") == s.get("zarr_compatF3/0.0")
+    assert s.get("zarr_compatF2/0.1") == s.get("zarr_compatF3/0.1")
+    assert s.get("zarr_compatF2/1.0") == s.get("zarr_compatF3/1.0")
+    assert s.get("zarr_compatF2/1.1") == s.get("zarr_compatF3/1.1")

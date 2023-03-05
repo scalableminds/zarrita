@@ -1,4 +1,6 @@
-from typing import TYPE_CHECKING, List, Literal
+from typing import TYPE_CHECKING, Any, Dict, List, Literal
+
+from cattr import Converter
 
 if TYPE_CHECKING:
     from zarrita.codecs import CodecMetadata
@@ -42,3 +44,51 @@ def get_order(codecs: List["CodecMetadata"]) -> Literal["C", "F"]:
             if not isinstance(order, tuple):
                 return order
     return "C"
+
+
+def make_cattr():
+    from zarrita.array import (
+        ChunkKeyEncodingMetadata,
+        DefaultChunkKeyEncodingMetadata,
+        V2ChunkKeyEncodingMetadata,
+    )
+    from zarrita.codecs import (
+        BloscCodecMetadata,
+        CodecMetadata,
+        EndianCodecMetadata,
+        GzipCodecMetadata,
+        ShardingCodecMetadata,
+        TransposeCodecMetadata,
+    )
+
+    dataset_converter = Converter()
+
+    def _structure_chunk_key_encoding_metadata(
+        d: Dict[str, Any], _t
+    ) -> ChunkKeyEncodingMetadata:
+        if d["name"] == "default":
+            return dataset_converter.structure(d, DefaultChunkKeyEncodingMetadata)
+        if d["name"] == "v2":
+            return dataset_converter.structure(d, V2ChunkKeyEncodingMetadata)
+        raise KeyError
+
+    dataset_converter.register_structure_hook(
+        ChunkKeyEncodingMetadata, _structure_chunk_key_encoding_metadata
+    )
+
+    def _structure_codec_metadata(d: Dict[str, Any], _t) -> CodecMetadata:
+        if d["name"] == "blosc":
+            return dataset_converter.structure(d, BloscCodecMetadata)
+        if d["name"] == "endian":
+            return dataset_converter.structure(d, EndianCodecMetadata)
+        if d["name"] == "transpose":
+            return dataset_converter.structure(d, TransposeCodecMetadata)
+        if d["name"] == "gzip":
+            return dataset_converter.structure(d, GzipCodecMetadata)
+        if d["name"] == "sharding_indexed":
+            return dataset_converter.structure(d, ShardingCodecMetadata)
+        raise KeyError
+
+    dataset_converter.register_structure_hook(CodecMetadata, _structure_codec_metadata)
+
+    return dataset_converter
