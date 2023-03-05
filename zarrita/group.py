@@ -2,10 +2,9 @@ import json
 from typing import Any, Dict, Literal, Optional, Union
 
 from attr import asdict, field, frozen
-from cattrs import structure
 
 from zarrita.array import Array
-from zarrita.common import ZARR_JSON
+from zarrita.common import ZARR_JSON, make_cattr
 from zarrita.store import Store
 
 
@@ -41,7 +40,7 @@ class Group:
     @classmethod
     def from_json(cls, store: Store, path: str, zarr_json: Any) -> "Group":
         group = cls()
-        group.metadata = structure(zarr_json, GroupMetadata)
+        group.metadata = make_cattr().structure(zarr_json, GroupMetadata)
         group.store = store
         group.path = path
         return group

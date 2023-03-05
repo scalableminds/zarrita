@@ -118,6 +118,23 @@ def test_open():
     assert a.metadata == b.metadata
 
 
+def test_open_sharding():
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "open_sharding",
+        shape=(16, 16),
+        chunk_shape=(16, 16),
+        dtype="int32",
+        fill_value=0,
+        codecs=[
+            zarrita.codecs.sharding_codec((8, 8), [zarrita.codecs.transpose_codec("F")])
+        ],
+    )
+    b = zarrita.Array.open(s, "open_sharding")
+    assert a.metadata == b.metadata
+
+
 def test_simple():
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
     s = zarrita.FileSystemStore("file://./testdata")

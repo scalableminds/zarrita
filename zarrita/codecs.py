@@ -242,20 +242,3 @@ def sharding_codec(
     return ShardingCodecMetadata(
         configuration=ShardingCodecConfigurationMetadata(chunk_shape, codecs)
     )
-
-
-def _structure_codec_metadata(d: Dict[str, Any], _t) -> CodecMetadata:
-    if d["name"] == "blosc":
-        return structure(d, BloscCodecMetadata)
-    if d["name"] == "endian":
-        return structure(d, EndianCodecMetadata)
-    if d["name"] == "transpose":
-        return structure(d, TransposeCodecMetadata)
-    if d["name"] == "gzip":
-        return structure(d, GzipCodecMetadata)
-    if d["name"] == "sharding_indexed":
-        return structure(d, ShardingCodecMetadata)
-    raise KeyError
-
-
-register_structure_hook(CodecMetadata, _structure_codec_metadata)
