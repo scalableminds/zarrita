@@ -3,6 +3,7 @@ from shutil import rmtree
 import numpy as np
 import webknossos as wk
 from pytest import fixture
+import zarr
 
 import zarrita
 from zarrita.sharding import morton_order_iter
@@ -283,3 +284,71 @@ def test_delete_empty_sharded_chunks():
     assert np.array_equal(data, a[:, :])
     assert s.get("delete_empty_sharded_chunks/c1/0") == None
     assert len(s.get("delete_empty_sharded_chunks/c0/0")) == 16 * 2 + 8 * 8 * 2
+
+
+def test_zarr_compat():
+    data = np.zeros((16, 18), dtype="uint16")
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "zarr_compat3",
+        shape=data.shape,
+        chunk_shape=(10, 10),
+        dtype=data.dtype,
+        chunk_key_encoding=("v2", "."),
+        fill_value=1,
+    )
+
+    z2 = zarr.create(
+        shape=data.shape,
+        chunks=(10, 10),
+        dtype=data.dtype,
+        compressor=None,
+        fill_value=1,
+        store="testdata/zarr_compat2",
+    )
+
+    a[:16, :18] = data
+    z2[:16, :18] = data
+    assert np.array_equal(data, a[:16, :18])
+    assert np.array_equal(data, z2[:16, :18])
+
+    assert s.get("zarr_compat2/0.0") == s.get("zarr_compat3/0.0")
+    assert s.get("zarr_compat2/0.1") == s.get("zarr_compat3/0.1")
+    assert s.get("zarr_compat2/1.0") == s.get("zarr_compat3/1.0")
+    assert s.get("zarr_compat2/1.1") == s.get("zarr_compat3/1.1")
+
+
+def test_zarr_compat_F():
+    data = np.zeros((16, 18), dtype="uint16", order="F")
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "zarr_compat3",
+        shape=data.shape,
+        chunk_shape=(10, 10),
+        dtype=data.dtype,
+        chunk_key_encoding=("v2", "."),
+        fill_value=1,
+        codecs=[zarrita.codecs.transpose_codec("F")],
+    )
+
+    z2 = zarr.create(
+        shape=data.shape,
+        chunks=(10, 10),
+        dtype=data.dtype,
+        compressor=None,
+        order="F",
+        fill_value=1,
+        store="testdata/zarr_compat2",
+    )
+
+    a[:16, :18] = data
+    z2[:16, :18] = data
+    assert np.array_equal(data, a[:16, :18])
+    assert np.array_equal(data, z2[:16, :18])
+
+    assert s.get("zarr_compat2/0.0") == s.get("zarr_compat3/0.0")
+    assert s.get("zarr_compat2/0.1") == s.get("zarr_compat3/0.1")
+    assert s.get("zarr_compat2/1.0") == s.get("zarr_compat3/1.0")
+    assert s.get("zarr_compat2/1.1") == s.get("zarr_compat3/1.1")
