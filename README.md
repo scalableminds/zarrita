@@ -1,6 +1,6 @@
-# zarrita
+# Zarrita
 
-**Here be dragons.** Zarrita is a minimal, exploratory implementation of [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/v3.0.html) including [sharding](https://zarr.dev/zeps/draft/ZEP0002.html). This is only a technical proof of concept. Definitely, not for production use.
+Zarrita is an experimental implementation of [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/v3.0.html) including [sharding](https://zarr.dev/zeps/draft/ZEP0002.html). This is only a technical proof of concept meant for generating sample datasets. Not recommended for production use.
 
 ## Setup
 
@@ -80,6 +80,6 @@ assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16,
 
 # Credits
 
-This is a fork of `zarrita` by @alimanfoo. It implements the Zarr v3 specification created by @alimanfoo, @jstriebel, @jbms et al.
+This is a largely-rewritten fork of `zarrita` by [@alimanfoo](https://github.com/alimanfoo). It implements the Zarr v3 draft specification created by [@alimanfoo](https://github.com/alimanfoo), [@jstriebel](https://github.com/jstriebel), [@jbms](https://github.com/jbms) et al.
 
 Licensed under MIT
