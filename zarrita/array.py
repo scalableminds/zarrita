@@ -1,6 +1,6 @@
 import json
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from attr import asdict, field, frozen
@@ -120,7 +120,7 @@ class ArrayMetadata:
     fill_value: Any
     attributes: Dict[str, Any] = field(factory=dict)
     codecs: List[CodecMetadata] = field(factory=list)
-    dimension_names: Optional[List[str]] = None
+    dimension_names: Optional[Tuple[str, ...]] = None
     zarr_format: Literal[3] = 3
     node_type: Literal["array"] = "array"
 
@@ -148,7 +148,8 @@ class Array:
             Tuple[Literal["default"], Literal[".", "/"]],
             Tuple[Literal["v2"], Literal[".", "/"]],
         ] = ("default", "/"),
-        codecs: Optional[List[CodecMetadata]] = None,
+        codecs: Optional[Iterable[CodecMetadata]] = None,
+        dimension_names: Optional[Iterable[str]] = None,
         attributes: Optional[Dict[str, Any]] = None,
     ) -> "Array":
         data_type = (
@@ -179,7 +180,8 @@ class Array:
                 )
             ),
             fill_value=fill_value,
-            codecs=codecs or [],
+            codecs=list(codecs) if codecs else [],
+            dimension_names=tuple(dimension_names) if dimension_names else None,
             attributes=attributes or {},
         )
         array = cls()

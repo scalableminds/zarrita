@@ -128,7 +128,10 @@ def test_open_sharding():
         dtype="int32",
         fill_value=0,
         codecs=[
-            zarrita.codecs.sharding_codec((8, 8), [zarrita.codecs.transpose_codec("F")])
+            zarrita.codecs.sharding_codec(
+                (8, 8),
+                [zarrita.codecs.transpose_codec("F"), zarrita.codecs.blosc_codec()],
+            )
         ],
     )
     b = zarrita.Array.open(s, "open_sharding")
@@ -369,3 +372,33 @@ def test_zarr_compat_F():
     assert s.get("zarr_compatF2/0.1") == s.get("zarr_compatF3/0.1")
     assert s.get("zarr_compatF2/1.0") == s.get("zarr_compatF3/1.0")
     assert s.get("zarr_compatF2/1.1") == s.get("zarr_compatF3/1.1")
+
+
+def test_dimension_names():
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
+    s = zarrita.FileSystemStore("file://./testdata")
+    a = zarrita.Array.create(
+        s,
+        "dimension_names",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=0,
+        dimension_names=("x", "y"),
+    )
+
+    assert zarrita.Array.open(s, "dimension_names").metadata.dimension_names == (
+        "x",
+        "y",
+    )
+
+    a = zarrita.Array.create(
+        s,
+        "dimension_names",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=0,
+    )
+
+    assert zarrita.Array.open(s, "dimension_names").metadata.dimension_names == None
