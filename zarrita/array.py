@@ -70,8 +70,7 @@ class DefaultChunkKeyEncodingMetadata:
         return tuple(map(int, chunk_key[1:].split(self.configuration.separator)))
 
     def encode_chunk_key(self, chunk_coords: Tuple[int, ...]) -> str:
-        chunk_identifier = self.configuration.separator.join(map(str, chunk_coords))
-        return f"c{'0' if chunk_identifier == '' else chunk_identifier}"
+        return self.configuration.separator.join(map(str, ("c",) + chunk_coords))
 
 
 @frozen
