@@ -110,7 +110,7 @@ class EndianCodecMetadata:
     ) -> ValueHandle:
         byteorder = self._get_byteorder(chunk)
         if self.configuration.endian != byteorder:
-            chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
+            chunk = chunk.view(dtype=_array_metadata.dtype.newbyteorder(self.configuration.endian))
         return ArrayHandle(chunk)
 
     @_needs_array
@@ -122,7 +122,7 @@ class EndianCodecMetadata:
     ) -> ValueHandle:
         byteorder = self._get_byteorder(chunk)
         if self.configuration.endian != byteorder:
-            chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
+            chunk = chunk.view(dtype=_array_metadata.dtype.newbyteorder(self.configuration.endian))
         return ArrayHandle(chunk)
 
 

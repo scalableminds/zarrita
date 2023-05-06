@@ -271,7 +271,7 @@ class Array:
             return None
 
         # ensure correct dtype
-        if str(chunk.dtype) != self.metadata.data_type.name:
+        if chunk.dtype.name != self.metadata.data_type.name:
             chunk = chunk.view(self.metadata.dtype)
 
         # ensure correct chunk shape
