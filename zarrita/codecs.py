@@ -51,7 +51,7 @@ def _needs_array(
 class BloscCodecConfigurationMetadata:
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
     clevel: int = 5
-    shuffle: Literal[0, 1, 2, -1] = 0
+    shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle"
     blocksize: int = 0
 
 
@@ -60,6 +60,16 @@ class BloscCodecMetadata:
     configuration: BloscCodecConfigurationMetadata
     name: Literal["blosc"] = "blosc"
 
+    def _get_blosc_codec(self):
+        d = asdict(self.configuration)
+        map_shuffle_str_to_int = {
+            "noshuffle": 0,
+            "shuffle": 1,
+            "bitshuffle": 2
+        }
+        d["shuffle"] = map_shuffle_str_to_int[d["shuffle"]]
+        return Blosc.from_config(d)
+
     @_needs_bytes
     def decode(
         self,
@@ -67,7 +77,7 @@ class BloscCodecMetadata:
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        return BufferHandle(Blosc.from_config(asdict(self.configuration)).decode(buf))
+        return BufferHandle(self._get_blosc_codec().decode(buf))
 
     @_needs_array
     def encode(
@@ -78,7 +88,7 @@ class BloscCodecMetadata:
     ) -> ValueHandle:
         if not chunk.flags.c_contiguous and not chunk.flags.f_contiguous:
             chunk = chunk.copy(order="K")
-        return BufferHandle(Blosc.from_config(asdict(self.configuration)).encode(chunk))
+        return BufferHandle(self._get_blosc_codec().encode(chunk))
 
 
 @frozen
@@ -210,7 +220,7 @@ CodecMetadata = Union[
 def blosc_codec(
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd",
     clevel: int = 5,
-    shuffle: Literal[0, 1, 2, -1] = 0,
+    shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle",
     blocksize: int = 0,
 ) -> BloscCodecMetadata:
     return BloscCodecMetadata(
