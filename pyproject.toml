@@ -13,6 +13,7 @@ numpy = "^1.24.2"
 numcodecs = "^0.10.0"
 cattrs = "^22.2.0"
 attrs = "^22.2.0"
+crc32c = "^2.3.post0"
 
 [tool.poetry.group.dev.dependencies]
 webknossos = "^0.12.3"

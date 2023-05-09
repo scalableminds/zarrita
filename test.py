@@ -301,7 +301,7 @@ def test_delete_empty_sharded_chunks(store):
     data[:8, :8] = 0
     assert np.array_equal(data, a[:, :])
     assert store.get("delete_empty_sharded_chunks/c/1/0") == None
-    assert len(store.get("delete_empty_sharded_chunks/c/0/0")) == 16 * 2 + 8 * 8 * 2
+    assert len(store.get("delete_empty_sharded_chunks/c/0/0")) == 16 * 2 + 8 * 8 * 2 + 4
 
 
 def test_zarr_compat(store):

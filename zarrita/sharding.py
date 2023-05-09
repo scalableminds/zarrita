@@ -1,6 +1,7 @@
 import functools
 import itertools
 import math
+from crc32c import crc32c
 from typing import (
     TYPE_CHECKING,
     Dict,
@@ -99,7 +100,8 @@ class _ShardIndex(NamedTuple):
             )
 
     def to_bytes(self) -> bytes:
-        return self.offsets_and_lengths.tobytes(order="C")
+        index_bytes = self.offsets_and_lengths.tobytes(order="C")
+        return index_bytes + np.uint32(crc32c(index_bytes)).tobytes()
 
     @property
     def byte_length(self) -> int:
@@ -112,9 +114,14 @@ class _ShardIndex(NamedTuple):
         chunks_per_shard: Tuple[int, ...],
     ) -> "_ShardIndex":
         try:
+            crc32_bytes = buffer[-4:]
+            index_bytes = buffer[:-4]
+
+            assert np.uint32(crc32c(index_bytes)).tobytes() == crc32_bytes
+
             return cls(
                 offsets_and_lengths=np.frombuffer(
-                    bytearray(buffer), dtype="<u8"
+                    bytearray(index_bytes), dtype="<u8"
                 ).reshape(*chunks_per_shard, 2, order="C"),
             )
         except ValueError as e:  # pragma: no cover
@@ -122,16 +129,18 @@ class _ShardIndex(NamedTuple):
 
     @classmethod
     def create_empty(cls, chunks_per_shard: Tuple[int, ...]) -> "_ShardIndex":
-        # reserving 2*64bit per chunk for offset and length:
+        # reserving 2*64bit per chunk for offset and length + 32bit checksum:
+        index_bytes = MAX_UINT_64.to_bytes(8, byteorder="little") * (
+            2 * product(chunks_per_shard)
+        )
         return cls.from_bytes(
-            MAX_UINT_64.to_bytes(8, byteorder="little")
-            * (2 * product(chunks_per_shard)),
+            index_bytes + np.uint32(crc32c(index_bytes)).tobytes(),
             chunks_per_shard=chunks_per_shard,
         )
 
     @classmethod
     def index_byte_length(cls, chunks_per_shard: Tuple[int, ...]) -> int:
-        return 16 * product(chunks_per_shard)
+        return 16 * product(chunks_per_shard) + 4
 
 
 @frozen
