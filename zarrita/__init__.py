@@ -1,4 +1,4 @@
-import zarrita.codecs
-from zarrita.array import Array
-from zarrita.group import Group
-from zarrita.store import FileSystemStore, Store
+import zarrita.codecs  # noqa: F401
+from zarrita.array import Array  # noqa: F401
+from zarrita.group import Group  # noqa: F401
+from zarrita.store import FileSystemStore, Store  # noqa: F401

@@ -1,33 +1,70 @@
 from typing import List, Optional, Tuple
 
 import fsspec
-import numpy as np
+from fsspec.implementations.local import LocalFileSystem
+import asyncio
 
 
 class Store:
-    def multi_get(
+    async def multi_get_async(
         self, keys: List[Tuple[str, Optional[Tuple[int, int]]]]
     ) -> List[Optional[bytes]]:
-        return [self.get(key, byte_range) for key, byte_range in keys]
+        return await asyncio.gather(
+            *[self.get_async(key, byte_range) for key, byte_range in keys]
+        )
 
-    def get(
+    async def get_async(
         self, key: str, byte_range: Optional[Tuple[int, int]] = None
     ) -> Optional[bytes]:
         raise NotImplementedError
 
-    def multi_set(
+    async def multi_set_async(
         self, key_values: List[Tuple[str, bytes, Optional[Tuple[int, int]]]]
     ) -> None:
-        for key, value, byte_range in key_values:
-            self.set(key, value, byte_range)
+        await asyncio.gather(
+            *[
+                self.set_async(key, value, byte_range)
+                for key, value, byte_range in key_values
+            ]
+        )
 
-    def set(
+    async def set_async(
         self, key: str, value: bytes, byte_range: Optional[Tuple[int, int]] = None
     ) -> None:
-        raise NotImplemented
+        raise NotImplementedError
 
-    def delete(self, key: str) -> None:
-        raise NotImplemented
+    async def delete_async(self, key: str) -> None:
+        raise NotImplementedError
+
+
+class AsyncLocalFileSystem:
+    fs: LocalFileSystem
+
+    async_impl = True
+
+    def __init__(self, fs: LocalFileSystem):
+        self.fs = fs
+
+    async def cat_file(self, *args, **kwargs):
+        return self.fs.cat_file(*args, **kwargs)
+
+    async def makedirs(self, *args, **kwargs):
+        return self.fs.makedirs(*args, **kwargs)
+
+    async def exists(self, *args, **kwargs):
+        return self.fs.exists(*args, **kwargs)
+
+    async def rm(self, *args, **kwargs):
+        return self.fs.rm(*args, **kwargs)
+
+    async def _parent(self, *args, **kwargs):
+        return self.fs._parent(*args, **kwargs)
+
+    async def write_bytes(self, *args, **kwargs):
+        return self.fs.write_bytes(*args, **kwargs)
+
+    def open(self, *args, **kwargs):
+        return self.fs.open(*args, **kwargs)
 
 
 class FileSystemStore(Store):
@@ -35,23 +72,23 @@ class FileSystemStore(Store):
         assert isinstance(url, str)
 
         # instantiate file system
-        fs, root = fsspec.core.url_to_fs(url, **storage_options)
+        fs, root = fsspec.core.url_to_fs(
+            url, auto_mkdir=True, asynchronous=True, **storage_options
+        )
+        if isinstance(fs, LocalFileSystem):
+            fs = AsyncLocalFileSystem(fs)
         self.fs = fs
+        print(self.fs.__class__.async_impl)
         self.root = root.rstrip("/")
 
-    def multi_get(
-        self, keys: List[Tuple[str, Optional[Tuple[int, int]]]]
-    ) -> List[Optional[bytes]]:
-        return [self.get(key, byte_range) for key, byte_range in keys]
-
-    def get(
+    async def get_async(
         self, key: str, byte_range: Optional[Tuple[int, int]] = None
     ) -> Optional[bytes]:
         assert isinstance(key, str)
         path = f"{self.root}/{key}"
 
         try:
-            value = (
+            value = await (
                 self.fs.cat_file(path, byte_range[0], byte_range[1])
                 if byte_range
                 else self.fs.cat_file(path)
@@ -61,20 +98,14 @@ class FileSystemStore(Store):
 
         return value
 
-    def multi_set(
-        self, key_values: List[Tuple[str, bytes, Optional[Tuple[int, int]]]]
-    ) -> None:
-        for key, value, byte_range in key_values:
-            self.set(key, value, byte_range)
-
-    def set(
+    async def set_async(
         self, key: str, value: bytes, byte_range: Optional[Tuple[int, int]] = None
     ) -> None:
         assert isinstance(key, str)
         path = f"{self.root}/{key}"
 
         # ensure parent folder exists
-        self.fs.mkdirs(self.fs._parent(path), exist_ok=True)
+        await self.fs.makedirs(await self.fs._parent(path), exist_ok=True)
 
         # write data
         if byte_range:
@@ -82,10 +113,9 @@ class FileSystemStore(Store):
                 f.seek(byte_range[0])
                 f.write(value)
         else:
-            with self.fs.open(path, "wb") as f:
-                f.write(value)
+            await self.fs.write_bytes(path, value)
 
-    def delete(self, key: str) -> None:
+    async def delete_async(self, key: str) -> None:
         path = f"{self.root}/{key}"
-        if self.fs.exists(path):
-            self.fs.rm(path)
+        if await self.fs.exists(path):
+            await self.fs.rm(path)

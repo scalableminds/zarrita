@@ -11,7 +11,7 @@ from zarrita.store import Store
 # Facilitates implementations of codec which either operate on arrays or bytes.
 class ValueHandle:
     @abstractmethod
-    def __setitem__(
+    async def set_async(
         self,
         selection: Union[slice, Tuple[slice, ...]],
         value: "ValueHandle",
@@ -19,19 +19,23 @@ class ValueHandle:
         pass
 
     @abstractmethod
-    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> "ValueHandle":
+    async def get_async(
+        self, selection: Union[slice, Tuple[slice, ...]]
+    ) -> "ValueHandle":
         pass
 
     @abstractmethod
-    def tobytes(self) -> Optional[bytes]:
+    async def tobytes(self) -> Optional[bytes]:
         pass
 
     @abstractmethod
-    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+    async def toarray(
+        self, shape: Optional[Tuple[int, ...]] = None
+    ) -> Optional[np.ndarray]:
         pass
 
 
-class FileHandle(ValueHandle):
+class FileValueHandle(ValueHandle):
     store: "Store"
     path: str
 
@@ -40,54 +44,58 @@ class FileHandle(ValueHandle):
         self.store = store
         self.path = path
 
-    def __setitem__(
+    async def set_async(
         self,
         selection: Union[slice, Tuple[slice, ...]],
         value: ValueHandle,
     ):
         assert isinstance(selection, slice)
         if selection.start is None and selection.stop is None:
-            buf = value.tobytes()
+            buf = await value.tobytes()
             if buf:
-                self.store.set(self.path, buf)
+                await self.store.set_async(self.path, buf)
             else:
-                self.store.delete(self.path)
+                await self.store.delete_async(self.path)
         else:
-            buf = value.tobytes()
+            buf = await value.tobytes()
             if buf:
-                self.store.set(self.path, buf, (selection.start, selection.stop))
+                await self.store.set_async(self.path, buf, (selection.start, selection.stop))
 
-    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
+    async def get_async(
+        self, selection: Union[slice, Tuple[slice, ...]]
+    ) -> ValueHandle:
         assert isinstance(selection, slice)
-        buf = self.store.get(self.path, (selection.start, selection.stop))
+        buf = await self.store.get_async(self.path, (selection.start, selection.stop))
         if buf is not None:
-            return BufferHandle(buf)
-        return NoneHandle()
+            return BufferValueHandle(buf)
+        return NoneValueHandle()
 
-    def tobytes(self) -> Optional[bytes]:
-        return self.store.get(self.path)
+    async def tobytes(self) -> Optional[bytes]:
+        return await self.store.get_async(self.path)
 
-    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
-        buf = self.tobytes()
+    async def toarray(
+        self, shape: Optional[Tuple[int, ...]] = None
+    ) -> Optional[np.ndarray]:
+        buf = await self.tobytes()
         if buf is not None:
             return np.frombuffer(buf)
         return None
 
 
-class BufferHandle(ValueHandle):
+class BufferValueHandle(ValueHandle):
     buf: bytes
 
     def __init__(self, buf: bytes) -> None:
         super().__init__()
         self.buf = buf
 
-    def __setitem__(
+    async def set_async(
         self,
         selection: Union[slice, Tuple[slice, ...]],
         value: ValueHandle,
     ):
         assert isinstance(selection, slice)
-        buf = value.tobytes()
+        buf = await value.tobytes()
         if buf:
             if selection.start is None and selection.stop is None:
                 self.buf = buf
@@ -96,55 +104,67 @@ class BufferHandle(ValueHandle):
                 tmp[selection] = buf
                 self.buf = bytes(tmp)
 
-    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
+    async def get_async(
+        self, selection: Union[slice, Tuple[slice, ...]]
+    ) -> ValueHandle:
         assert isinstance(selection, slice)
-        return BufferHandle(self.buf[selection])
+        return BufferValueHandle(self.buf[selection])
 
-    def tobytes(self) -> Optional[bytes]:
+    async def tobytes(self) -> Optional[bytes]:
         return self.buf
 
-    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+    async def toarray(
+        self, shape: Optional[Tuple[int, ...]] = None
+    ) -> Optional[np.ndarray]:
         return np.frombuffer(self.buf)
 
 
-class ArrayHandle(ValueHandle):
+class ArrayValueHandle(ValueHandle):
     array: np.ndarray
 
     def __init__(self, array: np.ndarray) -> None:
         super().__init__()
         self.array = array
 
-    def __setitem__(
+    async def set_async(
         self,
         selection: Union[slice, Tuple[slice, ...]],
         value: ValueHandle,
     ):
-        self.array[selection] = value.toarray()
+        self.array[selection] = await value.toarray()
 
-    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
-        return ArrayHandle(self.array[selection])
+    async def get_async(
+        self, selection: Union[slice, Tuple[slice, ...]]
+    ) -> ValueHandle:
+        return ArrayValueHandle(self.array[selection])
 
-    def tobytes(self) -> Optional[bytes]:
+    async def tobytes(self) -> Optional[bytes]:
         array = self.array
         if not array.flags.c_contiguous and not array.flags.f_contiguous:
             array = array.copy(order="K")
         return array.tobytes()
 
-    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+    async def toarray(
+        self, shape: Optional[Tuple[int, ...]] = None
+    ) -> Optional[np.ndarray]:
         return self.array
 
 
-class NoneHandle(ValueHandle):
-    def __setitem__(
+class NoneValueHandle(ValueHandle):
+    async def set_async(
         self, selection: Union[slice, Tuple[slice, ...]], value: ValueHandle
     ):
-        raise NotImplemented
+        raise NotImplementedError
 
-    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]) -> ValueHandle:
+    async def get_async(
+        self, selection: Union[slice, Tuple[slice, ...]]
+    ) -> ValueHandle:
         return self
 
-    def tobytes(self) -> Optional[bytes]:
+    async def tobytes(self) -> Optional[bytes]:
         return None
 
-    def toarray(self, shape: Optional[Tuple[int, ...]] = None) -> Optional[np.ndarray]:
+    async def toarray(
+        self, shape: Optional[Tuple[int, ...]] = None
+    ) -> Optional[np.ndarray]:
         return None

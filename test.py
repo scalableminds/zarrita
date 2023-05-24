@@ -1,6 +1,7 @@
 from shutil import rmtree
 
 import numpy as np
+import pytest
 import webknossos as wk
 import zarr
 from pytest import fixture
@@ -19,11 +20,12 @@ def store() -> zarrita.Store:
     return zarrita.FileSystemStore("file://./testdata")
 
 
-def test_sharding(store):
+@pytest.mark.asyncio
+async def test_sharding(store):
     ds = wk.Dataset.open("l4_sample")
 
-    def copy(data, path):
-        a = zarrita.Array.create(
+    async def copy(data, path):
+        a = await zarrita.Array.create_async(
             store,
             path,
             shape=data.shape,
@@ -38,12 +40,12 @@ def test_sharding(store):
             ],
         )
 
-        a[:, :, :] = data
-        read_data = a[:, :, :]
+        await a.set_async((slice(None), slice(None), slice(None)), data)
+        read_data = await a.get_async((slice(None), slice(None), slice(None)))
         assert np.array_equal(data, read_data)
 
-    copy(ds.get_layer("color").get_mag(1).read()[0], "l4_sample/color/1")
-    # copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
+    await copy(ds.get_layer("color").get_mag(1).read()[0], "l4_sample/color/1")
+    # await copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
 
 
 def test_order_F(store):
@@ -262,10 +264,11 @@ def test_write_partial_sharded_chunks(store):
     assert np.array_equal(a[0:16, 0:16], data)
 
 
-def test_delete_empty_chunks(store):
+@pytest.mark.asyncio
+async def test_delete_empty_chunks(store):
     data = np.ones((16, 16))
 
-    a = zarrita.Array.create(
+    a = await zarrita.Array.create_async(
         store,
         "delete_empty_chunks",
         shape=data.shape,
@@ -273,14 +276,15 @@ def test_delete_empty_chunks(store):
         dtype=data.dtype,
         fill_value=1,
     )
-    a[0:16, 0:16] = np.zeros((16, 16))
-    a[0:16, 0:16] = data
-    assert np.array_equal(a[0:16, 0:16], data)
-    assert store.get("delete_empty_chunks/c0/0") == None
+    await a.set_async((slice(0, 16), slice(0, 16)), np.zeros((16, 16)))
+    await a.set_async((slice(0, 16), slice(0, 16)), data)
+    assert np.array_equal(await a.get_async((slice(0, 16), slice(0, 16))), data)
+    assert await store.get_async("delete_empty_chunks/c0/0") == None
 
 
-def test_delete_empty_sharded_chunks(store):
-    a = zarrita.Array.create(
+@pytest.mark.asyncio
+async def test_delete_empty_sharded_chunks(store):
+    a = await zarrita.Array.create_async(
         store,
         "delete_empty_sharded_chunks",
         shape=(16, 16),
@@ -289,9 +293,9 @@ def test_delete_empty_sharded_chunks(store):
         fill_value=1,
         codecs=[zarrita.codecs.sharding_codec(chunk_shape=(8, 8))],
     )
-    a[:, :] = np.zeros((16, 16))
-    a[8:, :] = np.ones((8, 16))
-    a[:, 8:] = np.ones((16, 8))
+    await a.set_async((slice(None), slice(None)), np.zeros((16, 16)))
+    await a.set_async((slice(8, None), slice(None)), np.ones((8, 16)))
+    await a.set_async((slice(None), slice(8, None)), np.ones((16, 8)))
     # chunk (0, 0) is full
     # chunks (0, 1), (1, 0), (1, 1) are empty
     # shard (0, 0) is half-full
@@ -299,15 +303,19 @@ def test_delete_empty_sharded_chunks(store):
 
     data = np.ones((16, 16), dtype="uint16")
     data[:8, :8] = 0
-    assert np.array_equal(data, a[:, :])
-    assert store.get("delete_empty_sharded_chunks/c/1/0") == None
-    assert len(store.get("delete_empty_sharded_chunks/c/0/0")) == 16 * 2 + 8 * 8 * 2 + 4
+    assert np.array_equal(data, await a.get_async((slice(None), slice(None))))
+    assert await store.get_async("delete_empty_sharded_chunks/c/1/0") == None
+    assert (
+        len(await store.get_async("delete_empty_sharded_chunks/c/0/0"))
+        == 16 * 2 + 8 * 8 * 2 + 4
+    )
 
 
-def test_zarr_compat(store):
+@pytest.mark.asyncio
+async def test_zarr_compat(store):
     data = np.zeros((16, 18), dtype="uint16")
 
-    a = zarrita.Array.create(
+    a = await zarrita.Array.create_async(
         store,
         "zarr_compat3",
         shape=data.shape,
@@ -326,21 +334,30 @@ def test_zarr_compat(store):
         store="testdata/zarr_compat2",
     )
 
-    a[:16, :18] = data
+    await a.set_async((slice(None, 16), slice(None, 18)), data)
     z2[:16, :18] = data
-    assert np.array_equal(data, a[:16, :18])
+    assert np.array_equal(data, await a.get_async((slice(None, 16), slice(None, 18))))
     assert np.array_equal(data, z2[:16, :18])
 
-    assert store.get("zarr_compat2/0.0") == store.get("zarr_compat3/0.0")
-    assert store.get("zarr_compat2/0.1") == store.get("zarr_compat3/0.1")
-    assert store.get("zarr_compat2/1.0") == store.get("zarr_compat3/1.0")
-    assert store.get("zarr_compat2/1.1") == store.get("zarr_compat3/1.1")
+    assert await store.get_async("zarr_compat2/0.0") == await store.get_async(
+        "zarr_compat3/0.0"
+    )
+    assert await store.get_async("zarr_compat2/0.1") == await store.get_async(
+        "zarr_compat3/0.1"
+    )
+    assert await store.get_async("zarr_compat2/1.0") == await store.get_async(
+        "zarr_compat3/1.0"
+    )
+    assert await store.get_async("zarr_compat2/1.1") == await store.get_async(
+        "zarr_compat3/1.1"
+    )
 
 
-def test_zarr_compat_F(store):
+@pytest.mark.asyncio
+async def test_zarr_compat_F(store):
     data = np.zeros((16, 18), dtype="uint16", order="F")
 
-    a = zarrita.Array.create(
+    a = await zarrita.Array.create_async(
         store,
         "zarr_compatF3",
         shape=data.shape,
@@ -361,15 +378,23 @@ def test_zarr_compat_F(store):
         store="testdata/zarr_compatF2",
     )
 
-    a[:16, :18] = data
+    await a.set_async((slice(None, 16), slice(None, 18)), data)
     z2[:16, :18] = data
-    assert np.array_equal(data, a[:16, :18])
+    assert np.array_equal(data, await a.get_async((slice(None, 16), slice(None, 18))))
     assert np.array_equal(data, z2[:16, :18])
 
-    assert store.get("zarr_compatF2/0.0") == store.get("zarr_compatF3/0.0")
-    assert store.get("zarr_compatF2/0.1") == store.get("zarr_compatF3/0.1")
-    assert store.get("zarr_compatF2/1.0") == store.get("zarr_compatF3/1.0")
-    assert store.get("zarr_compatF2/1.1") == store.get("zarr_compatF3/1.1")
+    assert await store.get_async("zarr_compatF2/0.0") == await store.get_async(
+        "zarr_compatF3/0.0"
+    )
+    assert await store.get_async("zarr_compatF2/0.1") == await store.get_async(
+        "zarr_compatF3/0.1"
+    )
+    assert await store.get_async("zarr_compatF2/1.0") == await store.get_async(
+        "zarr_compatF3/1.0"
+    )
+    assert await store.get_async("zarr_compatF2/1.1") == await store.get_async(
+        "zarr_compatF3/1.1"
+    )
 
 
 def test_dimension_names(store):

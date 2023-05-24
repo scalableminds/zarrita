@@ -83,3 +83,17 @@ assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16,
 This is a largely-rewritten fork of `zarrita` by [@alimanfoo](https://github.com/alimanfoo). It implements the Zarr v3 draft specification created by [@alimanfoo](https://github.com/alimanfoo), [@jstriebel](https://github.com/jstriebel), [@jbms](https://github.com/jbms) et al.
 
 Licensed under MIT
+
+# TODO
+
+- [x] Async
+- [ ] Selections in codecs
+- [ ] variable renaming
+- [ ] type indexing
+- [ ] attrs -> dataclasses
+- [ ] value handle slices get and set
+- [ ] codec classes
+
+- Dask support
+- buffer protocol
+- less memory copies?

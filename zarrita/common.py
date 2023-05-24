@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, Dict, ForwardRef, List, Literal, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union
 
 from cattr import Converter
 

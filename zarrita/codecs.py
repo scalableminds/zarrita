@@ -1,48 +1,73 @@
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Literal, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    List,
+    Literal,
+    Tuple,
+    Union,
+)
 
 import numpy as np
 from attr import asdict, frozen
-from cattrs import register_structure_hook, structure
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
 
 from zarrita.sharding import ShardingCodecConfigurationMetadata, ShardingCodecMetadata
-from zarrita.value_handle import ArrayHandle, BufferHandle, NoneHandle, ValueHandle
+from zarrita.value_handle import (
+    ArrayValueHandle,
+    BufferValueHandle,
+    NoneValueHandle,
+    ValueHandle,
+)
 
 if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
 
 
 def _needs_bytes(
-    f: Callable[[Any, bytes, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]
-) -> Callable[[Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]:
-    def inner(
+    f: Callable[
+        [Any, bytes, Tuple[slice, ...], "CoreArrayMetadata"],
+        Awaitable[ValueHandle],
+    ]
+) -> Callable[
+    [Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"],
+    Awaitable[ValueHandle],
+]:
+    async def inner(
         _self,
         value: ValueHandle,
         selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        buf = value.tobytes()
+        buf = await value.tobytes()
         if buf is None:
-            return NoneHandle()
-        return f(_self, buf, selection, array_metadata)
+            return NoneValueHandle()
+        return await f(_self, buf, selection, array_metadata)
 
     return inner
 
 
 def _needs_array(
-    f: Callable[[Any, np.ndarray, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]
-) -> Callable[[Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"], ValueHandle]:
-    def inner(
+    f: Callable[
+        [Any, np.ndarray, Tuple[slice, ...], "CoreArrayMetadata"],
+        Awaitable[ValueHandle],
+    ]
+) -> Callable[
+    [Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"],
+    Awaitable[ValueHandle],
+]:
+    async def inner(
         _self,
         value: ValueHandle,
         selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        array = value.toarray()
+        array = await value.toarray()
         if array is None:
-            return NoneHandle()
-        return f(_self, array, selection, array_metadata)
+            return NoneValueHandle()
+        return await f(_self, array, selection, array_metadata)
 
     return inner
 
@@ -61,16 +86,18 @@ class BloscCodecMetadata:
     name: Literal["blosc"] = "blosc"
 
     @_needs_bytes
-    def decode(
+    async def decode(
         self,
         buf: bytes,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        return BufferHandle(Blosc.from_config(asdict(self.configuration)).decode(buf))
+        return BufferValueHandle(
+            Blosc.from_config(asdict(self.configuration)).decode(buf)
+        )
 
     @_needs_array
-    def encode(
+    async def encode(
         self,
         chunk: np.ndarray,
         _selection: Tuple[slice, ...],
@@ -78,7 +105,9 @@ class BloscCodecMetadata:
     ) -> ValueHandle:
         if not chunk.flags.c_contiguous and not chunk.flags.f_contiguous:
             chunk = chunk.copy(order="K")
-        return BufferHandle(Blosc.from_config(asdict(self.configuration)).encode(chunk))
+        return BufferValueHandle(
+            Blosc.from_config(asdict(self.configuration)).encode(chunk)
+        )
 
 
 @frozen
@@ -102,7 +131,7 @@ class EndianCodecMetadata:
             return sys.byteorder
 
     @_needs_array
-    def decode(
+    async def decode(
         self,
         chunk: np.ndarray,
         _selection: Tuple[slice, ...],
@@ -111,10 +140,10 @@ class EndianCodecMetadata:
         byteorder = self._get_byteorder(chunk)
         if self.configuration.endian != byteorder:
             chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
-        return ArrayHandle(chunk)
+        return ArrayValueHandle(chunk)
 
     @_needs_array
-    def encode(
+    async def encode(
         self,
         chunk: np.ndarray,
         _selection: Tuple[slice, ...],
@@ -123,7 +152,7 @@ class EndianCodecMetadata:
         byteorder = self._get_byteorder(chunk)
         if self.configuration.endian != byteorder:
             chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
-        return ArrayHandle(chunk)
+        return ArrayValueHandle(chunk)
 
 
 @frozen
@@ -137,7 +166,7 @@ class TransposeCodecMetadata:
     name: Literal["transpose"] = "transpose"
 
     @_needs_array
-    def decode(
+    async def decode(
         self,
         chunk: np.ndarray,
         _selection: Tuple[slice, ...],
@@ -152,10 +181,10 @@ class TransposeCodecMetadata:
                 array_metadata.chunk_shape,
                 order=new_order,
             )
-        return ArrayHandle(chunk)
+        return ArrayValueHandle(chunk)
 
     @_needs_array
-    def encode(
+    async def encode(
         self,
         chunk: np.ndarray,
         _selection: Tuple[slice, ...],
@@ -166,7 +195,7 @@ class TransposeCodecMetadata:
             chunk = chunk.reshape(-1, order="C")
         else:
             chunk = chunk.reshape(-1, order=new_order)
-        return ArrayHandle(chunk)
+        return ArrayValueHandle(chunk)
 
 
 @frozen
@@ -180,22 +209,22 @@ class GzipCodecMetadata:
     name: Literal["gzip"] = "gzip"
 
     @_needs_bytes
-    def decode(
+    async def decode(
         self,
         buf: bytes,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        return BufferHandle(GZip(self.configuration.level).decode(buf))
+        return BufferValueHandle(GZip(self.configuration.level).decode(buf))
 
     @_needs_bytes
-    def encode(
+    async def encode(
         self,
         buf: bytes,
         _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        return BufferHandle(GZip(self.configuration.level).encode(buf))
+        return BufferValueHandle(GZip(self.configuration.level).encode(buf))
 
 
 CodecMetadata = Union[

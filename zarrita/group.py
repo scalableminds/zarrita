@@ -1,3 +1,4 @@
+import asyncio
 import json
 from typing import Any, Dict, Literal, Optional, Union
 
@@ -21,21 +22,33 @@ class Group:
     path: str
 
     @classmethod
-    def create(
+    async def create_async(
         cls, store: "Store", path: str, *, attributes: Optional[Dict[str, Any]] = None
     ) -> "Group":
         group = cls()
         group.metadata = GroupMetadata(attributes=attributes or {})
         group.store = store
         group.path = path
-        group._save_metadata()
+        await group._save_metadata()
         return group
 
     @classmethod
-    def open(cls, store: "Store", path: str) -> "Group":
-        zarr_json_bytes = store.get(f"{path}/{ZARR_JSON}")
+    def create(
+        cls, store: "Store", path: str, *, attributes: Optional[Dict[str, Any]] = None
+    ) -> "Group":
+        return asyncio.get_event_loop().run_until_complete(
+            cls.create_async(store, path, attributes=attributes)
+        )
+
+    @classmethod
+    async def open_async(cls, store: "Store", path: str) -> "Group":
+        zarr_json_bytes = await store.get_async(f"{path}/{ZARR_JSON}")
         assert zarr_json_bytes is not None
         return cls.from_json(store, path, json.loads(zarr_json_bytes))
+
+    @classmethod
+    def open(cls, store: "Store", path: str) -> "Group":
+        return asyncio.get_event_loop().run_until_complete(cls.open_async(store, path))
 
     @classmethod
     def from_json(cls, store: Store, path: str, zarr_json: Any) -> "Group":
@@ -46,8 +59,8 @@ class Group:
         return group
 
     @staticmethod
-    def open_or_array(store: Store, path: str) -> Union[Array, "Group"]:
-        zarr_json_bytes = store.get(f"{path}/{ZARR_JSON}")
+    async def open_or_array(store: Store, path: str) -> Union[Array, "Group"]:
+        zarr_json_bytes = await store.get_async(f"{path}/{ZARR_JSON}")
         assert zarr_json_bytes is not None
         zarr_json = json.loads(zarr_json_bytes)
         if zarr_json["node_type"] == "group":
@@ -56,8 +69,8 @@ class Group:
             return Array.from_json(store, path, zarr_json)
         raise KeyError
 
-    def _save_metadata(self) -> None:
-        self.store.set(
+    async def _save_metadata(self) -> None:
+        await self.store.set_async(
             f"{self.path}/{ZARR_JSON}",
             json.dumps(asdict(self.metadata)).encode(),
         )
@@ -69,17 +82,30 @@ class Group:
             assert path[-1] != "/"
         return path
 
-    def __getitem__(self, path: str) -> Union[Array, "Group"]:
+    async def get_async(self, path: str) -> Union[Array, "Group"]:
         path = self._dereference_path(path)
-        return Group.open_or_array(self.store, path)
+        return await Group.open_or_array(self.store, path)
+
+    def __getitem__(self, path: str) -> Union[Array, "Group"]:
+        return asyncio.get_event_loop().run_until_complete(self.get_async(path))
+
+    async def create_group_async(self, path: str, **kwargs) -> "Group":
+        path = self._dereference_path(path)
+        return await Group.create_async(self.store, path, **kwargs)
 
     def create_group(self, path: str, **kwargs) -> "Group":
-        path = self._dereference_path(path)
-        return Group.create(self.store, path, **kwargs)
+        return asyncio.get_event_loop().run_until_complete(
+            self.create_group_async(path)
+        )
 
-    def create_array(self, path: str, **kwargs) -> Array:
+    async def create_array_async(self, path: str, **kwargs) -> Array:
         path = self._dereference_path(path)
-        return Array.create(self.store, path, **kwargs)
+        return await Array.create_async(self.store, path, **kwargs)
+
+    def create_array(self, path: str, **kwargs) -> "Array":
+        return asyncio.get_event_loop().run_until_complete(
+            self.create_array_async(path, **kwargs)
+        )
 
     def __repr__(self):
         path = self.path
