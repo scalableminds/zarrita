@@ -20,15 +20,14 @@ def store() -> zarrita.Store:
     return zarrita.FileSystemStore("file://./testdata")
 
 
-@pytest.mark.asyncio
-async def test_sharding(store):
+def test_sharding(store):
     ds = wk.Dataset.open("l4_sample")
 
-    async def copy(data, path):
-        a = await zarrita.Array.create_async(
+    def copy(data, path):
+        a = zarrita.Array.create(
             store,
             path,
-            shape=data.shape,
+            shape=tuple(a + 10 for a in data.shape),
             chunk_shape=(512, 512, 512),
             dtype=data.dtype,
             fill_value=0,
@@ -40,12 +39,13 @@ async def test_sharding(store):
             ],
         )
 
-        await a.set_async((slice(None), slice(None), slice(None)), data)
-        read_data = await a.get_async((slice(None), slice(None), slice(None)))
+        a[10:, 10:, 10:] = data
+        read_data = a[10:, 10:, 10:]
+        assert data.shape == read_data.shape
         assert np.array_equal(data, read_data)
 
-    await copy(ds.get_layer("color").get_mag(1).read()[0], "l4_sample/color/1")
-    # await copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
+    copy(ds.get_layer("color").get_mag(1).read()[0], "l4_sample/color/1")
+    # copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
 
 
 def test_order_F(store):

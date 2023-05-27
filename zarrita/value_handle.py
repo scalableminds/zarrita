@@ -13,15 +13,12 @@ class ValueHandle:
     @abstractmethod
     async def set_async(
         self,
-        selection: Union[slice, Tuple[slice, ...]],
         value: "ValueHandle",
     ):
         pass
 
     @abstractmethod
-    async def get_async(
-        self, selection: Union[slice, Tuple[slice, ...]]
-    ) -> "ValueHandle":
+    def __getitem__(self, selection: slice) -> "ValueHandle":
         pass
 
     @abstractmethod
@@ -38,39 +35,33 @@ class ValueHandle:
 class FileValueHandle(ValueHandle):
     store: "Store"
     path: str
+    selection: Optional[slice] = None
 
     def __init__(self, store: "Store", path: str):
         super().__init__()
         self.store = store
         self.path = path
 
+    def __getitem__(self, selection: slice) -> ValueHandle:
+        out = FileValueHandle(self.store, self.path)
+        out.selection = selection
+        return out
+
     async def set_async(
         self,
-        selection: Union[slice, Tuple[slice, ...]],
         value: ValueHandle,
     ):
-        assert isinstance(selection, slice)
-        if selection.start is None and selection.stop is None:
-            buf = await value.tobytes()
-            if buf:
-                await self.store.set_async(self.path, buf)
-            else:
-                await self.store.delete_async(self.path)
+        buf = await value.tobytes()
+        if buf:
+            await self.store.set_async(self.path, buf)
         else:
-            buf = await value.tobytes()
-            if buf:
-                await self.store.set_async(self.path, buf, (selection.start, selection.stop))
-
-    async def get_async(
-        self, selection: Union[slice, Tuple[slice, ...]]
-    ) -> ValueHandle:
-        assert isinstance(selection, slice)
-        buf = await self.store.get_async(self.path, (selection.start, selection.stop))
-        if buf is not None:
-            return BufferValueHandle(buf)
-        return NoneValueHandle()
+            await self.store.delete_async(self.path)
 
     async def tobytes(self) -> Optional[bytes]:
+        if self.selection:
+            return await self.store.get_async(
+                self.path, (self.selection.start, self.selection.stop)
+            )
         return await self.store.get_async(self.path)
 
     async def toarray(
@@ -91,23 +82,11 @@ class BufferValueHandle(ValueHandle):
 
     async def set_async(
         self,
-        selection: Union[slice, Tuple[slice, ...]],
         value: ValueHandle,
     ):
-        assert isinstance(selection, slice)
-        buf = await value.tobytes()
-        if buf:
-            if selection.start is None and selection.stop is None:
-                self.buf = buf
-            else:
-                tmp = bytearray(self.buf)
-                tmp[selection] = buf
-                self.buf = bytes(tmp)
+        self.buf = await value.tobytes()
 
-    async def get_async(
-        self, selection: Union[slice, Tuple[slice, ...]]
-    ) -> ValueHandle:
-        assert isinstance(selection, slice)
+    def __getitem__(self, selection: slice) -> "ValueHandle":
         return BufferValueHandle(self.buf[selection])
 
     async def tobytes(self) -> Optional[bytes]:
@@ -128,14 +107,11 @@ class ArrayValueHandle(ValueHandle):
 
     async def set_async(
         self,
-        selection: Union[slice, Tuple[slice, ...]],
         value: ValueHandle,
     ):
-        self.array[selection] = await value.toarray()
+        self.array = await value.toarray()
 
-    async def get_async(
-        self, selection: Union[slice, Tuple[slice, ...]]
-    ) -> ValueHandle:
+    def __getitem__(self, selection: slice) -> "ValueHandle":
         return ArrayValueHandle(self.array[selection])
 
     async def tobytes(self) -> Optional[bytes]:
@@ -151,14 +127,10 @@ class ArrayValueHandle(ValueHandle):
 
 
 class NoneValueHandle(ValueHandle):
-    async def set_async(
-        self, selection: Union[slice, Tuple[slice, ...]], value: ValueHandle
-    ):
+    async def set_async(self, value: ValueHandle):
         raise NotImplementedError
 
-    async def get_async(
-        self, selection: Union[slice, Tuple[slice, ...]]
-    ) -> ValueHandle:
+    def __getitem__(self, _selection: slice) -> "ValueHandle":
         return self
 
     async def tobytes(self) -> Optional[bytes]:

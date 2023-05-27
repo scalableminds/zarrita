@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
 
 
-def _needs_bytes(
+def _needs_bytes_decode(
     f: Callable[
         [Any, bytes, Tuple[slice, ...], "CoreArrayMetadata"],
         Awaitable[ValueHandle],
@@ -48,8 +48,29 @@ def _needs_bytes(
 
     return inner
 
+def _needs_bytes_encode(
+    f: Callable[
+        [Any, bytes, "CoreArrayMetadata"],
+        Awaitable[ValueHandle],
+    ]
+) -> Callable[
+    [Any, ValueHandle, "CoreArrayMetadata"],
+    Awaitable[ValueHandle],
+]:
+    async def inner(
+        _self,
+        value: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        buf = await value.tobytes()
+        if buf is None:
+            return NoneValueHandle()
+        return await f(_self, buf, array_metadata)
 
-def _needs_array(
+    return inner
+
+
+def _needs_array_decode(
     f: Callable[
         [Any, np.ndarray, Tuple[slice, ...], "CoreArrayMetadata"],
         Awaitable[ValueHandle],
@@ -72,6 +93,25 @@ def _needs_array(
     return inner
 
 
+def _needs_array_encode(
+    f: Callable[
+        [Any, np.ndarray, "CoreArrayMetadata"],
+        Awaitable[ValueHandle],
+    ]
+) -> Callable[[Any, ValueHandle, "CoreArrayMetadata"], Awaitable[ValueHandle],]:
+    async def inner(
+        _self,
+        value: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        array = await value.toarray()
+        if array is None:
+            return NoneValueHandle()
+        return await f(_self, array, array_metadata)
+
+    return inner
+
+
 @frozen
 class BloscCodecConfigurationMetadata:
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
@@ -85,7 +125,10 @@ class BloscCodecMetadata:
     configuration: BloscCodecConfigurationMetadata
     name: Literal["blosc"] = "blosc"
 
-    @_needs_bytes
+    supports_partial_decode = False
+    supports_partial_encode = False
+
+    @_needs_bytes_decode
     async def decode(
         self,
         buf: bytes,
@@ -96,11 +139,10 @@ class BloscCodecMetadata:
             Blosc.from_config(asdict(self.configuration)).decode(buf)
         )
 
-    @_needs_array
+    @_needs_array_encode
     async def encode(
         self,
         chunk: np.ndarray,
-        _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         if not chunk.flags.c_contiguous and not chunk.flags.f_contiguous:
@@ -120,6 +162,9 @@ class EndianCodecMetadata:
     configuration: EndianCodecConfigurationMetadata
     name: Literal["endian"] = "endian"
 
+    supports_partial_decode = True
+    supports_partial_encode = True
+
     def _get_byteorder(self, array: np.ndarray) -> Literal["big", "little"]:
         if array.dtype.byteorder == "<":
             return "little"
@@ -130,7 +175,7 @@ class EndianCodecMetadata:
 
             return sys.byteorder
 
-    @_needs_array
+    @_needs_array_decode
     async def decode(
         self,
         chunk: np.ndarray,
@@ -142,11 +187,10 @@ class EndianCodecMetadata:
             chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
         return ArrayValueHandle(chunk)
 
-    @_needs_array
+    @_needs_array_encode
     async def encode(
         self,
         chunk: np.ndarray,
-        _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         byteorder = self._get_byteorder(chunk)
@@ -165,7 +209,10 @@ class TransposeCodecMetadata:
     configuration: TransposeCodecConfigurationMetadata
     name: Literal["transpose"] = "transpose"
 
-    @_needs_array
+    supports_partial_decode = False
+    supports_partial_encode = False
+
+    @_needs_array_decode
     async def decode(
         self,
         chunk: np.ndarray,
@@ -183,11 +230,10 @@ class TransposeCodecMetadata:
             )
         return ArrayValueHandle(chunk)
 
-    @_needs_array
+    @_needs_array_encode
     async def encode(
         self,
         chunk: np.ndarray,
-        _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         new_order = self.configuration.order
@@ -208,7 +254,10 @@ class GzipCodecMetadata:
     configuration: GzipCodecConfigurationMetadata
     name: Literal["gzip"] = "gzip"
 
-    @_needs_bytes
+    supports_partial_decode = False
+    supports_partial_encode = False
+
+    @_needs_bytes_decode
     async def decode(
         self,
         buf: bytes,
@@ -217,11 +266,10 @@ class GzipCodecMetadata:
     ) -> ValueHandle:
         return BufferValueHandle(GZip(self.configuration.level).decode(buf))
 
-    @_needs_bytes
+    @_needs_bytes_encode
     async def encode(
         self,
         buf: bytes,
-        _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         return BufferValueHandle(GZip(self.configuration.level).encode(buf))
