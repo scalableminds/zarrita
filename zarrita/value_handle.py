@@ -2,6 +2,7 @@ from abc import abstractmethod
 from typing import Optional, Tuple, Union
 
 import numpy as np
+from zarrita.common import BytesLike
 
 from zarrita.store import Store
 
@@ -74,17 +75,18 @@ class FileValueHandle(ValueHandle):
 
 
 class BufferValueHandle(ValueHandle):
-    buf: bytes
+    buf: BytesLike
 
-    def __init__(self, buf: bytes) -> None:
-        super().__init__()
+    def __init__(self, buf: BytesLike) -> None:
         self.buf = buf
 
     async def set_async(
         self,
         value: ValueHandle,
     ):
-        self.buf = await value.tobytes()
+        buf = await value.tobytes()
+        assert buf is not None
+        self.buf = buf
 
     def __getitem__(self, selection: slice) -> "ValueHandle":
         return BufferValueHandle(self.buf[selection])
@@ -109,7 +111,9 @@ class ArrayValueHandle(ValueHandle):
         self,
         value: ValueHandle,
     ):
-        self.array = await value.toarray()
+        array = await value.toarray()
+        assert array is not None
+        self.array = array
 
     def __getitem__(self, selection: slice) -> "ValueHandle":
         return ArrayValueHandle(self.array[selection])

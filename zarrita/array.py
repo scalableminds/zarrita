@@ -327,7 +327,7 @@ class Array:
         # apply codecs in reverse order
         for codec_metadata in self.metadata.codecs[::-1]:
             value_handle = await codec_metadata.decode(
-                value_handle, selection, self._core_metadata
+                value_handle, self._core_metadata
             )
 
         chunk = await value_handle.toarray()
@@ -398,18 +398,18 @@ class Array:
                     )
                 await self._write_chunk(value_handle, chunk)
 
-            elif (
-                len(self.metadata.codecs) == 1
-                and self.metadata.codecs[0].name == "sharding_indexed"
-            ):
-                sharding_codec = self.metadata.codecs[0]
-                chunk_value = await sharding_codec.encode_partial(
-                    value_handle,
-                    value[out_selection],
-                    chunk_selection,
-                    self._core_metadata,
-                )
-                await value_handle.set_async(chunk_value)
+            # elif (
+            #     len(self.metadata.codecs) == 1
+            #     and self.metadata.codecs[0].name == "sharding_indexed"
+            # ):
+            #     sharding_codec = self.metadata.codecs[0]
+            #     chunk_value = await sharding_codec.encode_partial(
+            #         value_handle,
+            #         value[out_selection],
+            #         chunk_selection,
+            #         self._core_metadata,
+            #     )
+            #     await value_handle.set_async(chunk_value)
             else:
                 # writing partial chunks
                 # read chunk first

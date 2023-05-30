@@ -26,37 +26,12 @@ if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
 
 
-def _needs_bytes_decode(
-    f: Callable[
-        [Any, bytes, Tuple[slice, ...], "CoreArrayMetadata"],
-        Awaitable[ValueHandle],
-    ]
-) -> Callable[
-    [Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"],
-    Awaitable[ValueHandle],
-]:
-    async def inner(
-        _self,
-        value: ValueHandle,
-        selection: Tuple[slice, ...],
-        array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        buf = await value.tobytes()
-        if buf is None:
-            return NoneValueHandle()
-        return await f(_self, buf, selection, array_metadata)
-
-    return inner
-
-def _needs_bytes_encode(
+def _needs_bytes(
     f: Callable[
         [Any, bytes, "CoreArrayMetadata"],
         Awaitable[ValueHandle],
     ]
-) -> Callable[
-    [Any, ValueHandle, "CoreArrayMetadata"],
-    Awaitable[ValueHandle],
-]:
+) -> Callable[[Any, ValueHandle, "CoreArrayMetadata"], Awaitable[ValueHandle],]:
     async def inner(
         _self,
         value: ValueHandle,
@@ -70,30 +45,7 @@ def _needs_bytes_encode(
     return inner
 
 
-def _needs_array_decode(
-    f: Callable[
-        [Any, np.ndarray, Tuple[slice, ...], "CoreArrayMetadata"],
-        Awaitable[ValueHandle],
-    ]
-) -> Callable[
-    [Any, ValueHandle, Tuple[slice, ...], "CoreArrayMetadata"],
-    Awaitable[ValueHandle],
-]:
-    async def inner(
-        _self,
-        value: ValueHandle,
-        selection: Tuple[slice, ...],
-        array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        array = await value.toarray()
-        if array is None:
-            return NoneValueHandle()
-        return await f(_self, array, selection, array_metadata)
-
-    return inner
-
-
-def _needs_array_encode(
+def _needs_array(
     f: Callable[
         [Any, np.ndarray, "CoreArrayMetadata"],
         Awaitable[ValueHandle],
@@ -128,18 +80,17 @@ class BloscCodecMetadata:
     supports_partial_decode = False
     supports_partial_encode = False
 
-    @_needs_bytes_decode
+    @_needs_bytes
     async def decode(
         self,
         buf: bytes,
-        _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         return BufferValueHandle(
             Blosc.from_config(asdict(self.configuration)).decode(buf)
         )
 
-    @_needs_array_encode
+    @_needs_array
     async def encode(
         self,
         chunk: np.ndarray,
@@ -175,11 +126,10 @@ class EndianCodecMetadata:
 
             return sys.byteorder
 
-    @_needs_array_decode
+    @_needs_array
     async def decode(
         self,
         chunk: np.ndarray,
-        _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         byteorder = self._get_byteorder(chunk)
@@ -187,7 +137,7 @@ class EndianCodecMetadata:
             chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
         return ArrayValueHandle(chunk)
 
-    @_needs_array_encode
+    @_needs_array
     async def encode(
         self,
         chunk: np.ndarray,
@@ -212,11 +162,10 @@ class TransposeCodecMetadata:
     supports_partial_decode = False
     supports_partial_encode = False
 
-    @_needs_array_decode
+    @_needs_array
     async def decode(
         self,
         chunk: np.ndarray,
-        _selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         new_order = self.configuration.order
@@ -230,7 +179,7 @@ class TransposeCodecMetadata:
             )
         return ArrayValueHandle(chunk)
 
-    @_needs_array_encode
+    @_needs_array
     async def encode(
         self,
         chunk: np.ndarray,
@@ -257,16 +206,15 @@ class GzipCodecMetadata:
     supports_partial_decode = False
     supports_partial_encode = False
 
-    @_needs_bytes_decode
+    @_needs_bytes
     async def decode(
         self,
         buf: bytes,
-        _selection: Tuple[slice, ...],
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         return BufferValueHandle(GZip(self.configuration.level).decode(buf))
 
-    @_needs_bytes_encode
+    @_needs_bytes
     async def encode(
         self,
         buf: bytes,

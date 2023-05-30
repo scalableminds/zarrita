@@ -6,7 +6,7 @@ import webknossos as wk
 import zarr
 from pytest import fixture
 
-import zarrita
+from zarrita import *
 from zarrita.sharding import morton_order_iter
 
 
@@ -40,11 +40,18 @@ def test_sharding(store):
         )
 
         a[10:, 10:, 10:] = data
+
+        read_data = a[0:10, 0:10, 0:10]
+        assert np.all(read_data == 0)
+
         read_data = a[10:, 10:, 10:]
         assert data.shape == read_data.shape
         assert np.array_equal(data, read_data)
 
-    copy(ds.get_layer("color").get_mag(1).read()[0], "l4_sample/color/1")
+    copy(
+        ds.get_layer("color").get_mag(1).read()[0][0:128, 0:128, 0:128],
+        "l4_sample/color/1",
+    )
     # copy(ds.get_layer("segmentation").get_mag(1).read()[0], "l4_sample/segmentation/1")
 
 

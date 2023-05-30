@@ -8,6 +8,8 @@ if TYPE_CHECKING:
 
 ZARR_JSON = "zarr.json"
 
+BytesLike = Union[bytes, bytearray, memoryview]
+
 
 def is_total_slice(item, shape):
     """Determine whether `item` specifies a complete slice of array with the
