@@ -18,7 +18,7 @@ from typing import (
 import numpy as np
 from attrs import field, frozen
 
-from zarrita.common import get_order, is_total_slice, BytesLike
+from zarrita.common import is_total_slice, BytesLike
 from zarrita.indexing import BasicIndexer
 from zarrita.value_handle import (
     ArrayValueHandle,
@@ -188,10 +188,13 @@ class _ShardBuilder(_ShardProxy):
     def merge_with_morton_order(
         cls,
         chunks_per_shard: ChunkCoords,
+        tombstones: Set[ChunkCoords],
         *shard_dicts: Mapping[ChunkCoords, BytesLike]
     ) -> "_ShardBuilder":
         obj = cls.create_empty(chunks_per_shard)
         for chunk_coords in morton_order_iter(chunks_per_shard):
+            if tombstones is not None and chunk_coords in tombstones:
+                continue
             for shard_dict in shard_dicts:
                 maybe_value = shard_dict.get(chunk_coords, None)
                 if maybe_value is not None:
@@ -207,9 +210,10 @@ class _ShardBuilder(_ShardProxy):
 
     def append(self, chunk_coords: ChunkCoords, value: BytesLike):
         chunk_start = len(self.buf)
+        chunk_length = len(value)
         self.buf.extend(value)
         self.index.set_chunk_slice(
-            chunk_coords, slice(chunk_start, chunk_start + len(value))
+            chunk_coords, slice(chunk_start, chunk_start + chunk_length)
         )
 
     def finalize(self) -> BytesLike:
@@ -245,9 +249,7 @@ class ShardingCodecMetadata:
 
         # setup output array
         out = np.zeros(
-            shard_shape,
-            dtype=array_metadata.dtype,
-            order=get_order(self.configuration.codecs),
+            shard_shape, dtype=array_metadata.dtype, order=array_metadata.order
         )
         shard_dict = await self._load_full_shard(value_handle, chunks_per_shard)
 
@@ -286,9 +288,7 @@ class ShardingCodecMetadata:
 
         # setup output array
         out = np.zeros(
-            shard_shape,
-            dtype=array_metadata.dtype,
-            order=get_order(self.configuration.codecs),
+            shard_shape, dtype=array_metadata.dtype, order=array_metadata.order
         )
 
         indexed_chunks = list(indexer)
@@ -319,7 +319,6 @@ class ShardingCodecMetadata:
                 out[out_selection] = tmp
             elif array_metadata.fill_value is not None:
                 out[out_selection] = array_metadata.fill_value
-            # print(chunk_coords, out_selection, "<-", chunk_selection)
 
         return ArrayValueHandle(out)
 
@@ -341,6 +340,7 @@ class ShardingCodecMetadata:
             chunk_shape=self.configuration.chunk_shape,
             data_type=array_metadata.data_type,
             fill_value=array_metadata.fill_value,
+            order=array_metadata.order,
         )
 
         # applying codecs in revers e order
@@ -390,12 +390,9 @@ class ShardingCodecMetadata:
             else:
                 # handling writing partial chunks
                 chunk = np.empty(
-                    chunk_shape,
-                    dtype=array_metadata.dtype,
-                    order="C",
+                    chunk_shape, dtype=array_metadata.dtype, order=array_metadata.order
                 )
-                if array_metadata.fill_value:
-                    chunk.fill(array_metadata.fill_value)
+                chunk.fill(array_metadata.fill_value)
                 chunk[chunk_selection] = shard_array[out_selection]
             if not array_metadata.fill_value or not np.all(
                 chunk == array_metadata.fill_value
@@ -421,6 +418,7 @@ class ShardingCodecMetadata:
 
         old_shard_dict = await self._load_full_shard(old_value_handle, chunks_per_shard)
         new_shard_builder = _ShardBuilder.create_empty(chunks_per_shard)
+        tombstones: Set[ChunkCoords] = set()
 
         indexer = list(
             BasicIndexer(
@@ -446,12 +444,13 @@ class ShardingCodecMetadata:
                     chunk_array = np.empty(
                         chunk_shape,
                         dtype=array_metadata.dtype,
-                        order="C",
+                        order=array_metadata.order,
                     )
-                    if array_metadata.fill_value:
-                        chunk_array.fill(array_metadata.fill_value)
+                    chunk_array.fill(array_metadata.fill_value)
                 else:
-                    chunk_array = tmp.copy(order="K")  # make a writable copy
+                    chunk_array = tmp.copy(
+                        order=array_metadata.order
+                    )  # make a writable copy
                 chunk_array[chunk_selection] = shard_array[out_selection]
 
             if not array_metadata.fill_value or not np.all(
@@ -460,9 +459,11 @@ class ShardingCodecMetadata:
                 new_shard_builder.append(
                     chunk_coords, await self._encode_chunk(chunk_array, array_metadata)
                 )
+            else:
+                tombstones.add(chunk_coords)
 
         shard_builder = _ShardBuilder.merge_with_morton_order(
-            chunks_per_shard, new_shard_builder, old_shard_dict
+            chunks_per_shard, tombstones, new_shard_builder, old_shard_dict
         )
 
         if shard_builder.index.is_all_empty():
@@ -482,6 +483,7 @@ class ShardingCodecMetadata:
             chunk_shape=self.configuration.chunk_shape,
             data_type=array_metadata.data_type,
             fill_value=array_metadata.fill_value,
+            order=array_metadata.order,
         )
 
         encoded_chunk_value: ValueHandle = ArrayValueHandle(chunk)
@@ -493,6 +495,7 @@ class ShardingCodecMetadata:
 
         encoded_chunk_bytes = await encoded_chunk_value.tobytes()
         assert encoded_chunk_bytes is not None
+        print(len(encoded_chunk_bytes), chunk.shape, chunk.dtype)
         return encoded_chunk_bytes
 
     def _is_total_shard(

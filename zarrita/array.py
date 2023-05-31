@@ -7,7 +7,7 @@ import numpy as np
 from attr import asdict, field, frozen
 
 from zarrita.codecs import CodecMetadata
-from zarrita.common import ZARR_JSON, get_order, is_total_slice, make_cattr
+from zarrita.common import ZARR_JSON, is_total_slice, make_cattr
 from zarrita.indexing import BasicIndexer
 from zarrita.store import Store
 from zarrita.value_handle import (
@@ -110,6 +110,7 @@ class CoreArrayMetadata:
     chunk_shape: Tuple[int, ...]
     data_type: DataType
     fill_value: Any
+    order: Literal["C", "F"]
 
     @property
     def dtype(self) -> np.dtype:
@@ -134,10 +135,17 @@ class ArrayMetadata:
         return np.dtype(self.data_type.value)
 
 
+@frozen
+class ArrayRuntimeConfiguration:
+    order: Literal["C", "F"] = "C"
+
+
+@frozen
 class Array:
     metadata: ArrayMetadata
     store: "Store"
     path: str
+    runtime_configuration: ArrayRuntimeConfiguration
 
     @classmethod
     async def create_async(
@@ -156,6 +164,7 @@ class Array:
         codecs: Optional[Iterable[CodecMetadata]] = None,
         dimension_names: Optional[Iterable[str]] = None,
         attributes: Optional[Dict[str, Any]] = None,
+        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> "Array":
         data_type = (
             DataType[dtype]
@@ -184,15 +193,19 @@ class Array:
                     )
                 )
             ),
-            fill_value=fill_value,
+            fill_value=0 if fill_value is None else fill_value,
             codecs=list(codecs) if codecs else [],
             dimension_names=tuple(dimension_names) if dimension_names else None,
             attributes=attributes or {},
         )
-        array = cls()
-        array.metadata = metadata
-        array.store = store
-        array.path = path
+        array = cls(
+            metadata=metadata,
+            store=store,
+            path=path,
+            runtime_configuration=runtime_configuration
+            if runtime_configuration
+            else ArrayRuntimeConfiguration(),
+        )
         await array._save_metadata()
         return array
 
@@ -213,6 +226,7 @@ class Array:
         codecs: Optional[Iterable[CodecMetadata]] = None,
         dimension_names: Optional[Iterable[str]] = None,
         attributes: Optional[Dict[str, Any]] = None,
+        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> "Array":
         return asyncio.get_event_loop().run_until_complete(
             cls.create_async(
@@ -226,26 +240,46 @@ class Array:
                 codecs=codecs,
                 dimension_names=dimension_names,
                 attributes=attributes,
+                runtime_configuration=runtime_configuration,
             )
         )
 
     @classmethod
-    async def open_async(cls, store: "Store", path: str) -> "Array":
+    async def open_async(
+        cls,
+        store: "Store",
+        path: str,
+        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+    ) -> "Array":
         zarr_json_bytes = await store.get_async(f"{path}/{ZARR_JSON}")
         assert zarr_json_bytes is not None
-        return cls.from_json(store, path, json.loads(zarr_json_bytes))
+        return cls.from_json(
+            store,
+            path,
+            json.loads(zarr_json_bytes),
+            runtime_configuration=runtime_configuration
+            if runtime_configuration
+            else ArrayRuntimeConfiguration(),
+        )
 
     @classmethod
     def open(cls, store: "Store", path: str) -> "Array":
         return asyncio.get_event_loop().run_until_complete(cls.open_async(store, path))
 
     @classmethod
-    def from_json(cls, store: Store, path: str, zarr_json: Any) -> "Array":
-        array = cls()
-        array.metadata = make_cattr().structure(zarr_json, ArrayMetadata)
-        array.store = store
-        array.path = path
-        return array
+    def from_json(
+        cls,
+        store: Store,
+        path: str,
+        zarr_json: Any,
+        runtime_configuration: ArrayRuntimeConfiguration,
+    ) -> "Array":
+        return cls(
+            metadata=make_cattr().structure(zarr_json, ArrayMetadata),
+            store=store,
+            path=path,
+            runtime_configuration=runtime_configuration,
+        )
 
     async def _save_metadata(self) -> None:
         def convert(o):
@@ -269,10 +303,22 @@ class Array:
             chunk_shape=self.metadata.chunk_grid.configuration.chunk_shape,
             data_type=self.metadata.data_type,
             fill_value=self.metadata.fill_value,
+            order=self.runtime_configuration.order,
         )
 
     def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]):
         return asyncio.get_event_loop().run_until_complete(self.get_async(selection))
+
+    async def _fetch_chunk(self, chunk_coords, chunk_selection, out_selection, out):
+        chunk_key_encoding = self.metadata.chunk_key_encoding
+        chunk_key = f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
+        value_handle = FileValueHandle(self.store, chunk_key)
+        chunk_array = await self._decode_chunk(value_handle, chunk_selection)
+        if chunk_array is not None:
+            tmp = chunk_array[chunk_selection]
+            out[out_selection] = tmp
+        elif self.metadata.fill_value is not None:
+            out[out_selection] = self.metadata.fill_value
 
     async def get_async(self, selection: Union[slice, Tuple[slice, ...]]):
         indexer = BasicIndexer(
@@ -285,29 +331,18 @@ class Array:
         out = np.zeros(
             indexer.shape,
             dtype=self.metadata.dtype,
-            order=get_order(self.metadata.codecs),
+            order=self.runtime_configuration.order,
         )
-
-        async def _fetch_chunk(chunk_coords, chunk_selection, out_selection):
-            chunk_key_encoding = self.metadata.chunk_key_encoding
-            chunk_key = (
-                f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
-            )
-            value_handle = FileValueHandle(self.store, chunk_key)
-            chunk = await self._decode_chunk(value_handle, chunk_selection)
-            if chunk is not None:
-                tmp = chunk[chunk_selection]
-                out[out_selection] = tmp
-            elif self.metadata.fill_value is not None:
-                out[out_selection] = self.metadata.fill_value
 
         # reading chunks and decoding them
-        await asyncio.gather(
-            *[
-                _fetch_chunk(chunk_coords, chunk_selection, out_selection)
-                for chunk_coords, chunk_selection, out_selection in indexer
-            ]
-        )
+        for chunk_coords, chunk_selection, out_selection in indexer:
+            await self._fetch_chunk(chunk_coords, chunk_selection, out_selection, out)
+        # await asyncio.gather(
+        #     *[
+        #         self._fetch_chunk(chunk_coords, chunk_selection, out_selection, out)
+        #         for chunk_coords, chunk_selection, out_selection in indexer
+        #     ]
+        # )
 
         if out.shape:
             return out
@@ -340,7 +375,10 @@ class Array:
 
         # ensure correct chunk shape
         if chunk.shape != self.metadata.chunk_grid.configuration.chunk_shape:
-            chunk = chunk.reshape(self.metadata.chunk_grid.configuration.chunk_shape)
+            chunk = chunk.reshape(
+                self.metadata.chunk_grid.configuration.chunk_shape,
+                order=self.runtime_configuration.order,
+            )
 
         return chunk
 
@@ -372,6 +410,8 @@ class Array:
             if not hasattr(value, "shape"):
                 value = np.asarray(value, self.metadata.dtype)
             assert value.shape == sel_shape
+            if value.dtype != self.metadata.dtype:
+                value = value.astype(self.metadata.dtype, order="K")
 
         # merging with existing data and encoding chunks
         for chunk_coords, chunk_selection, out_selection in indexer:
@@ -384,32 +424,30 @@ class Array:
             if is_total_slice(chunk_selection, chunk_shape):
                 # write entire chunks
                 if sel_shape == ():
-                    chunk = value
+                    chunk_array = value
                 elif np.isscalar(value):
-                    chunk = np.empty(
+                    chunk_array = np.empty(
                         chunk_shape,
                         dtype=self.metadata.dtype,
-                        order="C",
+                        order=self.runtime_configuration.order,
                     )
-                    chunk.fill(value)
+                    chunk_array.fill(value)
                 else:
-                    chunk = value[out_selection].astype(
-                        self.metadata.dtype, order="C", copy=False
-                    )
-                await self._write_chunk(value_handle, chunk)
+                    chunk_array = value[out_selection]
+                await self._write_chunk(value_handle, chunk_array)
 
-            # elif (
-            #     len(self.metadata.codecs) == 1
-            #     and self.metadata.codecs[0].name == "sharding_indexed"
-            # ):
-            #     sharding_codec = self.metadata.codecs[0]
-            #     chunk_value = await sharding_codec.encode_partial(
-            #         value_handle,
-            #         value[out_selection],
-            #         chunk_selection,
-            #         self._core_metadata,
-            #     )
-            #     await value_handle.set_async(chunk_value)
+            elif (
+                len(self.metadata.codecs) == 1
+                and self.metadata.codecs[0].name == "sharding_indexed"
+            ):
+                sharding_codec = self.metadata.codecs[0]
+                chunk_value = await sharding_codec.encode_partial(
+                    value_handle,
+                    value[out_selection],
+                    chunk_selection,
+                    self._core_metadata,
+                )
+                await value_handle.set_async(chunk_value)
             else:
                 # writing partial chunks
                 # read chunk first
@@ -420,18 +458,19 @@ class Array:
 
                 # merge new value
                 if tmp is None:
-                    chunk = np.empty(
+                    chunk_array = np.empty(
                         chunk_shape,
                         dtype=self.metadata.dtype,
-                        order="C",
+                        order=self.runtime_configuration.order,
                     )
-                    if self.metadata.fill_value:
-                        chunk.fill(self.metadata.fill_value)
+                    chunk_array.fill(self.metadata.fill_value)
                 else:
-                    chunk = tmp.copy(order="K")  # make a writable copy
-                chunk[chunk_selection] = value[out_selection]
+                    chunk_array = tmp.copy(
+                        order=self.runtime_configuration.order,
+                    )  # make a writable copy
+                chunk_array[chunk_selection] = value[out_selection]
 
-                await self._write_chunk(value_handle, chunk)
+                await self._write_chunk(value_handle, chunk_array)
 
     async def _write_chunk(self, value_handle: ValueHandle, chunk_array: np.ndarray):
         chunk_value: ValueHandle

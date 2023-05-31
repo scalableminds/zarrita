@@ -4,7 +4,7 @@ from typing import Any, Dict, Literal, Optional, Union
 
 from attr import asdict, field, frozen
 
-from zarrita.array import Array
+from zarrita.array import Array, ArrayRuntimeConfiguration
 from zarrita.common import ZARR_JSON, make_cattr
 from zarrita.store import Store
 
@@ -66,7 +66,7 @@ class Group:
         if zarr_json["node_type"] == "group":
             return Group.from_json(store, path, zarr_json)
         if zarr_json["node_type"] == "array":
-            return Array.from_json(store, path, zarr_json)
+            return Array.from_json(store, path, zarr_json, ArrayRuntimeConfiguration())
         raise KeyError
 
     async def _save_metadata(self) -> None:

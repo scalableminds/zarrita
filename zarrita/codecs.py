@@ -59,6 +59,7 @@ def _needs_array(
         array = await value.toarray()
         if array is None:
             return NoneValueHandle()
+        array = array.view(dtype=array_metadata.dtype)
         return await f(_self, array, array_metadata)
 
     return inner
@@ -172,11 +173,20 @@ class TransposeCodecMetadata:
         chunk = chunk.view(np.dtype(array_metadata.data_type.value))
         if isinstance(new_order, tuple):
             chunk = chunk.transpose(new_order)
+        elif new_order == "F":
+            chunk = chunk.reshape(
+                array_metadata.chunk_shape,
+                order="F",
+            )
         else:
             chunk = chunk.reshape(
                 array_metadata.chunk_shape,
-                order=new_order,
+                order="C",
             )
+        if array_metadata.order == "F":
+            chunk = np.asfortranarray(chunk)
+        else:
+            chunk = np.ascontiguousarray(chunk)
         return ArrayValueHandle(chunk)
 
     @_needs_array
@@ -187,9 +197,9 @@ class TransposeCodecMetadata:
     ) -> ValueHandle:
         new_order = self.configuration.order
         if isinstance(new_order, tuple):
-            chunk = chunk.reshape(-1, order="C")
+            chunk = chunk.transpose(new_order).reshape(-1, order="C")
         else:
-            chunk = chunk.reshape(-1, order=new_order)
+            chunk = chunk.ravel(order=new_order)
         return ArrayValueHandle(chunk)
 
 

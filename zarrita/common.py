@@ -39,15 +39,6 @@ def is_total_slice(item, shape):
         raise TypeError("expected slice or tuple of slices, found %r" % item)
 
 
-def get_order(codecs: List["CodecMetadata"]) -> Literal["C", "F"]:
-    for codec in codecs:
-        if codec.name == "transpose":
-            order = codec.configuration.order
-            if not isinstance(order, tuple):
-                return order
-    return "C"
-
-
 def make_cattr():
     from zarrita.array import (
         ChunkKeyEncodingMetadata,

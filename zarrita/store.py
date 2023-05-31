@@ -78,7 +78,6 @@ class FileSystemStore(Store):
         if isinstance(fs, LocalFileSystem):
             fs = AsyncLocalFileSystem(fs)
         self.fs = fs
-        print(self.fs.__class__.async_impl)
         self.root = root.rstrip("/")
 
     async def get_async(
@@ -103,9 +102,6 @@ class FileSystemStore(Store):
     ) -> None:
         assert isinstance(key, str)
         path = f"{self.root}/{key}"
-
-        # ensure parent folder exists
-        await self.fs.makedirs(await self.fs._parent(path), exist_ok=True)
 
         # write data
         if byte_range:

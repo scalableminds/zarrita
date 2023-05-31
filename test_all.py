@@ -7,16 +7,13 @@ import zarr
 from pytest import fixture
 
 from zarrita import *
+from zarrita.array import ArrayRuntimeConfiguration
 from zarrita.sharding import morton_order_iter
-
-
-@fixture(autouse=True, scope="module")
-def clean_folder():
-    rmtree("testdata", ignore_errors=True)
 
 
 @fixture
 def store() -> zarrita.Store:
+    rmtree("testdata", ignore_errors=True)
     return zarrita.FileSystemStore("file://./testdata")
 
 
@@ -66,6 +63,7 @@ def test_order_F(store):
         dtype=data.dtype,
         fill_value=0,
         codecs=[zarrita.codecs.transpose_codec("F")],
+        runtime_configuration=ArrayRuntimeConfiguration(order="F"),
     )
 
     a[:, :] = data
