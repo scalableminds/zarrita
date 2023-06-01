@@ -37,10 +37,10 @@ def _needs_bytes(
         value: ValueHandle,
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        buf = await value.tobytes()
-        if buf is None:
+        chunk_bytes = await value.tobytes()
+        if chunk_bytes is None:
             return NoneValueHandle()
-        return await f(_self, buf, array_metadata)
+        return await f(_self, chunk_bytes, array_metadata)
 
     return inner
 
@@ -56,11 +56,11 @@ def _needs_array(
         value: ValueHandle,
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        array = await value.toarray()
-        if array is None:
+        chunk_array = await value.toarray()
+        if chunk_array is None:
             return NoneValueHandle()
-        array = array.view(dtype=array_metadata.dtype)
-        return await f(_self, array, array_metadata)
+        chunk_array = chunk_array.view(dtype=array_metadata.dtype)
+        return await f(_self, chunk_array, array_metadata)
 
     return inner
 
@@ -84,23 +84,23 @@ class BloscCodecMetadata:
     @_needs_bytes
     async def decode(
         self,
-        buf: bytes,
+        chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         return BufferValueHandle(
-            Blosc.from_config(asdict(self.configuration)).decode(buf)
+            Blosc.from_config(asdict(self.configuration)).decode(chunk_bytes)
         )
 
     @_needs_array
     async def encode(
         self,
-        chunk: np.ndarray,
+        chunk_array: np.ndarray,
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        if not chunk.flags.c_contiguous and not chunk.flags.f_contiguous:
-            chunk = chunk.copy(order="K")
+        if not chunk_array.flags.c_contiguous and not chunk_array.flags.f_contiguous:
+            chunk_array = chunk_array.copy(order="K")
         return BufferValueHandle(
-            Blosc.from_config(asdict(self.configuration)).encode(chunk)
+            Blosc.from_config(asdict(self.configuration)).encode(chunk_array)
         )
 
 
@@ -130,24 +130,28 @@ class EndianCodecMetadata:
     @_needs_array
     async def decode(
         self,
-        chunk: np.ndarray,
+        chunk_array: np.ndarray,
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        byteorder = self._get_byteorder(chunk)
+        byteorder = self._get_byteorder(chunk_array)
         if self.configuration.endian != byteorder:
-            chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
-        return ArrayValueHandle(chunk)
+            chunk_array = chunk_array.view(
+                dtype=chunk_array.dtype.newbyteorder(byteorder)
+            )
+        return ArrayValueHandle(chunk_array)
 
     @_needs_array
     async def encode(
         self,
-        chunk: np.ndarray,
+        chunk_array: np.ndarray,
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        byteorder = self._get_byteorder(chunk)
+        byteorder = self._get_byteorder(chunk_array)
         if self.configuration.endian != byteorder:
-            chunk = chunk.view(dtype=chunk.dtype.newbyteorder(byteorder))
-        return ArrayValueHandle(chunk)
+            chunk_array = chunk_array.view(
+                dtype=chunk_array.dtype.newbyteorder(byteorder)
+            )
+        return ArrayValueHandle(chunk_array)
 
 
 @frozen
@@ -166,41 +170,41 @@ class TransposeCodecMetadata:
     @_needs_array
     async def decode(
         self,
-        chunk: np.ndarray,
+        chunk_array: np.ndarray,
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         new_order = self.configuration.order
-        chunk = chunk.view(np.dtype(array_metadata.data_type.value))
+        chunk_array = chunk_array.view(np.dtype(array_metadata.data_type.value))
         if isinstance(new_order, tuple):
-            chunk = chunk.transpose(new_order)
+            chunk_array = chunk_array.transpose(new_order)
         elif new_order == "F":
-            chunk = chunk.reshape(
+            chunk_array = chunk_array.reshape(
                 array_metadata.chunk_shape,
                 order="F",
             )
         else:
-            chunk = chunk.reshape(
+            chunk_array = chunk_array.reshape(
                 array_metadata.chunk_shape,
                 order="C",
             )
-        if array_metadata.order == "F":
-            chunk = np.asfortranarray(chunk)
-        else:
-            chunk = np.ascontiguousarray(chunk)
-        return ArrayValueHandle(chunk)
+        # if array_metadata.order == "F":
+        #     chunk_array = np.asfortranarray(chunk_array)
+        # else:
+        #     chunk_array = np.ascontiguousarray(chunk_array)
+        return ArrayValueHandle(chunk_array)
 
     @_needs_array
     async def encode(
         self,
-        chunk: np.ndarray,
+        chunk_array: np.ndarray,
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         new_order = self.configuration.order
         if isinstance(new_order, tuple):
-            chunk = chunk.transpose(new_order).reshape(-1, order="C")
+            chunk_array = chunk_array.transpose(new_order).reshape(-1, order="C")
         else:
-            chunk = chunk.ravel(order=new_order)
-        return ArrayValueHandle(chunk)
+            chunk_array = chunk_array.ravel(order=new_order)
+        return ArrayValueHandle(chunk_array)
 
 
 @frozen
@@ -219,18 +223,18 @@ class GzipCodecMetadata:
     @_needs_bytes
     async def decode(
         self,
-        buf: bytes,
+        chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        return BufferValueHandle(GZip(self.configuration.level).decode(buf))
+        return BufferValueHandle(GZip(self.configuration.level).decode(chunk_bytes))
 
     @_needs_bytes
     async def encode(
         self,
-        buf: bytes,
+        chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
-        return BufferValueHandle(GZip(self.configuration.level).encode(buf))
+        return BufferValueHandle(GZip(self.configuration.level).encode(chunk_bytes))
 
 
 CodecMetadata = Union[

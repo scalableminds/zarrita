@@ -259,11 +259,11 @@ class ShardingCodecMetadata:
         # decoding chunks and writing them into the output buffer
         for chunk_coords, chunk_selection, out_selection in indexer:
             chunk_value = shard_dict.get(chunk_coords, None)
-            chunk = await self._decode_chunk(chunk_value, array_metadata)
-            if chunk is not None:
-                tmp = chunk[chunk_selection]
+            chunk_array = await self._decode_chunk(chunk_value, array_metadata)
+            if chunk_array is not None:
+                tmp = chunk_array[chunk_selection]
                 out[out_selection] = tmp
-            elif array_metadata.fill_value is not None:
+            else:
                 out[out_selection] = array_metadata.fill_value
 
         return ArrayValueHandle(out)
@@ -271,6 +271,7 @@ class ShardingCodecMetadata:
     async def decode_partial(
         self,
         value_handle: ValueHandle,
+        selection: Tuple[slice, ...],
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         if isinstance(value_handle, NoneValueHandle):
@@ -281,14 +282,14 @@ class ShardingCodecMetadata:
         chunks_per_shard = tuple(s // c for s, c in zip(shard_shape, chunk_shape))
 
         indexer = BasicIndexer(
-            tuple(slice(0, s) for s in shard_shape),
+            selection,
             shape=shard_shape,
             chunk_shape=chunk_shape,
         )
 
         # setup output array
         out = np.zeros(
-            shard_shape, dtype=array_metadata.dtype, order=array_metadata.order
+            indexer.shape, dtype=array_metadata.dtype, order=array_metadata.order
         )
 
         indexed_chunks = list(indexer)
@@ -313,11 +314,11 @@ class ShardingCodecMetadata:
         # decoding chunks and writing them into the output buffer
         for chunk_coords, chunk_selection, out_selection in indexed_chunks:
             chunk_value = shard_dict.get(chunk_coords, None)
-            chunk = await self._decode_chunk(chunk_value, array_metadata)
-            if chunk is not None:
-                tmp = chunk[chunk_selection]
+            chunk_array = await self._decode_chunk(chunk_value, array_metadata)
+            if chunk_array is not None:
+                tmp = chunk_array[chunk_selection]
                 out[out_selection] = tmp
-            elif array_metadata.fill_value is not None:
+            else:
                 out[out_selection] = array_metadata.fill_value
 
         return ArrayValueHandle(out)
@@ -347,19 +348,19 @@ class ShardingCodecMetadata:
         for codec_metadata in self.configuration.codecs[::-1]:
             value_handle = await codec_metadata.decode(value_handle, core_metadata)
 
-        chunk = await value_handle.toarray()
-        if chunk is None:
+        chunk_array = await value_handle.toarray()
+        if chunk_array is None:
             return None
 
         # ensure correct dtype
-        if str(chunk.dtype) != array_metadata.data_type.name:
-            chunk = chunk.view(np.dtype(array_metadata.data_type.name))
+        if str(chunk_array.dtype) != array_metadata.data_type.name:
+            chunk_array = chunk_array.view(np.dtype(array_metadata.data_type.name))
 
         # ensure correct chunk shape
-        if chunk.shape != self.configuration.chunk_shape:
-            chunk = chunk.reshape(self.configuration.chunk_shape)
+        if chunk_array.shape != self.configuration.chunk_shape:
+            chunk_array = chunk_array.reshape(self.configuration.chunk_shape)
 
-        return chunk
+        return chunk_array
 
     async def encode(
         self,
@@ -386,19 +387,17 @@ class ShardingCodecMetadata:
         shard_builder = _ShardBuilder.create_empty(chunks_per_shard)
         for chunk_coords, chunk_selection, out_selection in indexer:
             if is_total_slice(chunk_selection, chunk_shape):
-                chunk = shard_array[out_selection]
+                chunk_array = shard_array[out_selection]
             else:
                 # handling writing partial chunks
-                chunk = np.empty(
+                chunk_array = np.empty(
                     chunk_shape, dtype=array_metadata.dtype, order=array_metadata.order
                 )
-                chunk.fill(array_metadata.fill_value)
-                chunk[chunk_selection] = shard_array[out_selection]
-            if not array_metadata.fill_value or not np.all(
-                chunk == array_metadata.fill_value
-            ):
+                chunk_array.fill(array_metadata.fill_value)
+                chunk_array[chunk_selection] = shard_array[out_selection]
+            if not np.all(chunk_array == array_metadata.fill_value):
                 shard_builder.append(
-                    chunk_coords, await self._encode_chunk(chunk, array_metadata)
+                    chunk_coords, await self._encode_chunk(chunk_array, array_metadata)
                 )
 
         if shard_builder.index.is_all_empty():
@@ -453,9 +452,7 @@ class ShardingCodecMetadata:
                     )  # make a writable copy
                 chunk_array[chunk_selection] = shard_array[out_selection]
 
-            if not array_metadata.fill_value or not np.all(
-                chunk_array == array_metadata.fill_value
-            ):
+            if not np.all(chunk_array == array_metadata.fill_value):
                 new_shard_builder.append(
                     chunk_coords, await self._encode_chunk(chunk_array, array_metadata)
                 )
@@ -495,7 +492,6 @@ class ShardingCodecMetadata:
 
         encoded_chunk_bytes = await encoded_chunk_value.tobytes()
         assert encoded_chunk_bytes is not None
-        print(len(encoded_chunk_bytes), chunk.shape, chunk.dtype)
         return encoded_chunk_bytes
 
     def _is_total_shard(

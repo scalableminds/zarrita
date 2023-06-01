@@ -87,8 +87,8 @@ Licensed under MIT
 # TODO
 
 - [x] Async
-- [ ] Selections in codecs
-- [ ] variable renaming
+- [x] sharding partial decode
+- [x] variable renaming
 - [ ] type indexing
 - [ ] attrs -> dataclasses
 - [ ] value handle slices get and set
