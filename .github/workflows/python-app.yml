@@ -27,4 +27,4 @@ jobs:
         unzip l4_sample.zip
     - name: Run tests
       run: |
-        poetry run pytest -vv test.py
+        poetry run pytest -vv test_all.py
