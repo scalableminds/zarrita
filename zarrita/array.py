@@ -7,9 +7,15 @@ import numpy as np
 from attr import asdict, field, frozen
 
 from zarrita.codecs import CodecMetadata
-from zarrita.common import ZARR_JSON, is_total_slice, make_cattr
+from zarrita.common import (
+    ZARR_JSON,
+    ChunkCoords,
+    Selection,
+    SliceSelection,
+    is_total_slice,
+    make_cattr,
+)
 from zarrita.indexing import BasicIndexer
-from zarrita.sharding import ChunkCoords
 from zarrita.store import Store
 from zarrita.value_handle import (
     ArrayValueHandle,
@@ -50,7 +56,7 @@ dtype_to_data_type = {
 
 @frozen
 class RegularChunkGridConfigurationMetadata:
-    chunk_shape: Tuple[int, ...]
+    chunk_shape: ChunkCoords
 
 
 @frozen
@@ -107,8 +113,8 @@ ChunkKeyEncodingMetadata = Union[
 
 @frozen
 class CoreArrayMetadata:
-    shape: Tuple[int, ...]
-    chunk_shape: Tuple[int, ...]
+    shape: ChunkCoords
+    chunk_shape: ChunkCoords
     data_type: DataType
     fill_value: Any
     order: Literal["C", "F"]
@@ -120,7 +126,7 @@ class CoreArrayMetadata:
 
 @frozen
 class ArrayMetadata:
-    shape: Tuple[int, ...]
+    shape: ChunkCoords
     data_type: DataType
     chunk_grid: RegularChunkGridMetadata
     chunk_key_encoding: ChunkKeyEncodingMetadata
@@ -141,6 +147,10 @@ class ArrayRuntimeConfiguration:
     order: Literal["C", "F"] = "C"
 
 
+def runtime_configuration(order: Literal["C", "F"]) -> ArrayRuntimeConfiguration:
+    return ArrayRuntimeConfiguration(order=order)
+
+
 @frozen
 class Array:
     metadata: ArrayMetadata
@@ -154,9 +164,9 @@ class Array:
         store: "Store",
         path: str,
         *,
-        shape: Tuple[int, ...],
+        shape: ChunkCoords,
         dtype: Union[str, np.dtype],
-        chunk_shape: Tuple[int, ...],
+        chunk_shape: ChunkCoords,
         fill_value: Optional[Any] = None,
         chunk_key_encoding: Union[
             Tuple[Literal["default"], Literal[".", "/"]],
@@ -216,9 +226,9 @@ class Array:
         store: "Store",
         path: str,
         *,
-        shape: Tuple[int, ...],
+        shape: ChunkCoords,
         dtype: Union[str, np.dtype],
-        chunk_shape: Tuple[int, ...],
+        chunk_shape: ChunkCoords,
         fill_value: Optional[Any] = None,
         chunk_key_encoding: Union[
             Tuple[Literal["default"], Literal[".", "/"]],
@@ -307,35 +317,10 @@ class Array:
             order=self.runtime_configuration.order,
         )
 
-    def __getitem__(self, selection: Union[slice, Tuple[slice, ...]]):
+    def __getitem__(self, selection: Selection):
         return asyncio.get_event_loop().run_until_complete(self.get_async(selection))
 
-    async def _fetch_chunk(self, chunk_coords, chunk_selection, out_selection, out):
-        chunk_key_encoding = self.metadata.chunk_key_encoding
-        chunk_key = f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
-        value_handle = FileValueHandle(self.store, chunk_key)
-        if (
-            len(self.metadata.codecs) == 1
-            and self.metadata.codecs[0].name == "sharding_indexed"
-        ):
-            value_handle = await self.metadata.codecs[0].decode_partial(
-                value_handle, chunk_selection, self._core_metadata
-            )
-            chunk_array = await value_handle.toarray()
-            if chunk_array is not None:
-                out[out_selection] = chunk_array
-            else:
-                out[out_selection] = self.metadata.fill_value
-        else:
-            chunk_array = await self._decode_chunk(value_handle, chunk_selection)
-
-            if chunk_array is not None:
-                tmp = chunk_array[chunk_selection]
-                out[out_selection] = tmp
-            else:
-                out[out_selection] = self.metadata.fill_value
-
-    async def get_async(self, selection: Union[slice, Tuple[slice, ...]]):
+    async def get_async(self, selection: Selection):
         indexer = BasicIndexer(
             selection,
             shape=self.metadata.shape,
@@ -352,7 +337,7 @@ class Array:
         # reading chunks and decoding them
         await asyncio.gather(
             *[
-                self._fetch_chunk(chunk_coords, chunk_selection, out_selection, out)
+                self._read_chunk(chunk_coords, chunk_selection, out_selection, out)
                 for chunk_coords, chunk_selection, out_selection in indexer
             ]
         )
@@ -362,8 +347,33 @@ class Array:
         else:
             return out[()]
 
+    async def _read_chunk(self, chunk_coords, chunk_selection, out_selection, out):
+        chunk_key_encoding = self.metadata.chunk_key_encoding
+        chunk_key = f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
+        value_handle = FileValueHandle(self.store, chunk_key)
+
+        if (
+            len(self.metadata.codecs) == 1
+            and self.metadata.codecs[0].name == "sharding_indexed"
+        ):
+            value_handle = await self.metadata.codecs[0].decode_partial(
+                value_handle, chunk_selection, self._core_metadata
+            )
+            chunk_array = await value_handle.toarray()
+            if chunk_array is not None:
+                out[out_selection] = chunk_array
+            else:
+                out[out_selection] = self.metadata.fill_value
+        else:
+            chunk_array = await self._decode_chunk(value_handle, chunk_selection)
+            if chunk_array is not None:
+                tmp = chunk_array[chunk_selection]
+                out[out_selection] = tmp
+            else:
+                out[out_selection] = self.metadata.fill_value
+
     async def _decode_chunk(
-        self, value_handle: ValueHandle, selection: Tuple[slice, ...]
+        self, value_handle: ValueHandle, selection: SliceSelection
     ) -> Optional[np.ndarray]:
         if isinstance(value_handle, NoneValueHandle):
             return None
@@ -391,14 +401,10 @@ class Array:
 
         return chunk_array
 
-    def __setitem__(
-        self, selection: Union[slice, Tuple[slice, ...]], value: np.ndarray
-    ) -> None:
+    def __setitem__(self, selection: Selection, value: np.ndarray) -> None:
         asyncio.get_event_loop().run_until_complete(self.set_async(selection, value))
 
-    async def set_async(
-        self, selection: Union[slice, Tuple[slice, ...]], value: np.ndarray
-    ) -> None:
+    async def set_async(self, selection: Selection, value: np.ndarray) -> None:
         chunk_shape = self.metadata.chunk_grid.configuration.chunk_shape
         indexer = BasicIndexer(
             selection,
@@ -409,10 +415,7 @@ class Array:
         sel_shape = indexer.shape
 
         # check value shape
-        if sel_shape == ():
-            # setting a single item
-            assert np.isscalar(value)
-        elif np.isscalar(value):
+        if np.isscalar(value):
             # setting a scalar value
             pass
         else:
@@ -423,65 +426,83 @@ class Array:
                 value = value.astype(self.metadata.dtype, order="K")
 
         # merging with existing data and encoding chunks
-        for chunk_coords, chunk_selection, out_selection in indexer:
-            chunk_key_encoding = self.metadata.chunk_key_encoding
-            chunk_key = (
-                f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
-            )
-            value_handle = FileValueHandle(self.store, chunk_key)
-
-            if is_total_slice(chunk_selection, chunk_shape):
-                # write entire chunks
-                if sel_shape == ():
-                    chunk_array = value
-                elif np.isscalar(value):
-                    chunk_array = np.empty(
-                        chunk_shape,
-                        dtype=self.metadata.dtype,
-                        order=self.runtime_configuration.order,
-                    )
-                    chunk_array.fill(value)
-                else:
-                    chunk_array = value[out_selection]
-                await self._write_chunk(value_handle, chunk_array)
-
-            elif (
-                len(self.metadata.codecs) == 1
-                and self.metadata.codecs[0].name == "sharding_indexed"
-            ):
-                sharding_codec = self.metadata.codecs[0]
-                chunk_value = await sharding_codec.encode_partial(
-                    value_handle,
-                    value[out_selection],
+        await asyncio.gather(
+            *[
+                self._write_chunk(
+                    value,
+                    chunk_shape,
+                    chunk_coords,
                     chunk_selection,
-                    self._core_metadata,
+                    out_selection,
                 )
-                await value_handle.set_async(chunk_value)
+                for chunk_coords, chunk_selection, out_selection in indexer
+            ]
+        )
+
+    async def _write_chunk(
+        self,
+        value: np.ndarray,
+        chunk_shape: ChunkCoords,
+        chunk_coords: ChunkCoords,
+        chunk_selection: SliceSelection,
+        out_selection: SliceSelection,
+    ):
+        chunk_key_encoding = self.metadata.chunk_key_encoding
+        chunk_key = f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
+        value_handle = FileValueHandle(self.store, chunk_key)
+
+        if is_total_slice(chunk_selection, chunk_shape):
+            # write entire chunks
+            if np.isscalar(value):
+                chunk_array = np.empty(
+                    chunk_shape,
+                    dtype=self.metadata.dtype,
+                    order=self.runtime_configuration.order,
+                )
+                chunk_array.fill(value)
             else:
-                # writing partial chunks
-                # read chunk first
-                tmp = await self._decode_chunk(
-                    value_handle,
-                    tuple(slice(0, c) for c in chunk_shape),
+                chunk_array = value[out_selection]
+            await self._write_chunk_to_store(value_handle, chunk_array)
+
+        elif (
+            len(self.metadata.codecs) == 1
+            and self.metadata.codecs[0].name == "sharding_indexed"
+        ):
+            sharding_codec = self.metadata.codecs[0]
+            chunk_value = await sharding_codec.encode_partial(
+                value_handle,
+                value[out_selection],
+                chunk_selection,
+                self._core_metadata,
+            )
+            await value_handle.set_async(chunk_value)
+        else:
+            # writing partial chunks
+            # read chunk first
+            tmp = await self._decode_chunk(
+                value_handle,
+                tuple(slice(0, c) for c in chunk_shape),
+            )
+
+            # merge new value
+            if tmp is None:
+                chunk_array = np.empty(
+                    chunk_shape,
+                    dtype=self.metadata.dtype,
+                    order=self.runtime_configuration.order,
                 )
+                chunk_array.fill(self.metadata.fill_value)
+            else:
+                chunk_array = tmp.copy(
+                    order=self.runtime_configuration.order,
+                )  # make a writable copy
+            chunk_array[chunk_selection] = value[out_selection]
 
-                # merge new value
-                if tmp is None:
-                    chunk_array = np.empty(
-                        chunk_shape,
-                        dtype=self.metadata.dtype,
-                        order=self.runtime_configuration.order,
-                    )
-                    chunk_array.fill(self.metadata.fill_value)
-                else:
-                    chunk_array = tmp.copy(
-                        order=self.runtime_configuration.order,
-                    )  # make a writable copy
-                chunk_array[chunk_selection] = value[out_selection]
+            await self._write_chunk_to_store(value_handle, chunk_array)
 
-                await self._write_chunk(value_handle, chunk_array)
-
-    async def _write_chunk(self, value_handle: ValueHandle, chunk_array: np.ndarray):
+    async def _write_chunk_to_store(
+        self, value_handle: ValueHandle, chunk_array: np.ndarray
+    ):
         chunk_value: ValueHandle
         if np.all(chunk_array == self.metadata.fill_value):
             # chunks that only contain fill_value will be removed

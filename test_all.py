@@ -7,7 +7,6 @@ import zarr
 from pytest import fixture
 
 from zarrita import *
-from zarrita.array import ArrayRuntimeConfiguration
 from zarrita.sharding import morton_order_iter
 
 
@@ -63,7 +62,7 @@ def test_order_F(store):
         dtype=data.dtype,
         fill_value=0,
         codecs=[zarrita.codecs.transpose_codec("F")],
-        runtime_configuration=ArrayRuntimeConfiguration(order="F"),
+        runtime_configuration=zarrita.runtime_configuration(order="F"),
     )
 
     a[:, :] = data

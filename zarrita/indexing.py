@@ -1,16 +1,17 @@
 import itertools
 import math
-import numbers
-from typing import Any, NamedTuple, Tuple, Union
+from typing import Any, Iterator, List, NamedTuple, Optional, Tuple, Union
+
+from zarrita.common import ChunkCoords, Selection, SliceSelection
 
 
-def _ensure_tuple(v):
+def _ensure_tuple(v: Selection) -> SliceSelection:
     if not isinstance(v, tuple):
         v = (v,)
     return v
 
 
-def _err_too_many_indices(selection, shape):
+def _err_too_many_indices(selection: SliceSelection, shape: ChunkCoords):
     raise IndexError(
         "too many indices for array; expected {}, got {}".format(
             len(shape), len(selection)
@@ -18,45 +19,20 @@ def _err_too_many_indices(selection, shape):
     )
 
 
-def _err_boundscheck(dim_len):
-    raise IndexError("index out of bounds for dimension with length {}".format(dim_len))
-
-
 def _err_negative_step():
     raise IndexError("only slices with step >= 1 are supported")
 
 
-def _check_selection_length(selection, shape):
+def _check_selection_length(selection: SliceSelection, shape: ChunkCoords):
     if len(selection) > len(shape):
         _err_too_many_indices(selection, shape)
 
 
-def _replace_ellipsis(selection, shape) -> Tuple[int, ...]:
+def _ensure_selection(
+    selection: Selection,
+    shape: ChunkCoords,
+) -> SliceSelection:
     selection = _ensure_tuple(selection)
-
-    # count number of ellipsis present
-    n_ellipsis = sum(1 for i in selection if i is Ellipsis)
-
-    if n_ellipsis > 1:
-        # more than 1 is an error
-        raise IndexError("an index can only have a single ellipsis ('...')")
-
-    elif n_ellipsis == 1:
-        # locate the ellipsis, count how many items to left and right
-        n_items_l = selection.index(Ellipsis)  # items to left of ellipsis
-        n_items_r = len(selection) - (n_items_l + 1)  # items to right of ellipsis
-        n_items = len(selection) - 1  # all non-ellipsis items
-
-        if n_items >= len(shape):
-            # ellipsis does nothing, just remove it
-            selection = tuple(i for i in selection if i != Ellipsis)
-
-        else:
-            # replace ellipsis with as many slices are needed for number of dims
-            new_item = selection[:n_items_l] + ((slice(None),) * (len(shape) - n_items))
-            if n_items_r:
-                new_item += selection[-n_items_r:]
-            selection = new_item
 
     # fill out selection if not completely specified
     if len(selection) < len(shape):
@@ -69,43 +45,9 @@ def _replace_ellipsis(selection, shape) -> Tuple[int, ...]:
 
 
 class _ChunkDimProjection(NamedTuple):
-    dim_chunk_ix: Any
-    dim_chunk_sel: Any
-    dim_out_sel: Any
-
-
-def _normalize_integer_selection(dim_sel, dim_len):
-    # normalize type to int
-    dim_sel = int(dim_sel)
-
-    # handle wraparound
-    if dim_sel < 0:
-        dim_sel = dim_len + dim_sel
-
-    # handle out of bounds
-    if dim_sel >= dim_len or dim_sel < 0:
-        _err_boundscheck(dim_len)
-
-    return dim_sel
-
-
-class _IntDimIndexer:
-    def __init__(self, dim_sel, dim_len, dim_chunk_len):
-        # normalize
-        dim_sel = _normalize_integer_selection(dim_sel, dim_len)
-
-        # store attributes
-        self.dim_sel = dim_sel
-        self.dim_len = dim_len
-        self.dim_chunk_len = dim_chunk_len
-        self.nitems = 1
-
-    def __iter__(self):
-        dim_chunk_ix = self.dim_sel // self.dim_chunk_len
-        dim_offset = dim_chunk_ix * self.dim_chunk_len
-        dim_chunk_sel = self.dim_sel - dim_offset
-        dim_out_sel = None
-        yield _ChunkDimProjection(dim_chunk_ix, dim_chunk_sel, dim_out_sel)
+    dim_chunk_ix: int
+    dim_chunk_sel: slice
+    dim_out_sel: Optional[slice]
 
 
 def _ceildiv(a, b):
@@ -113,19 +55,22 @@ def _ceildiv(a, b):
 
 
 class _SliceDimIndexer:
-    def __init__(self, dim_sel, dim_len, dim_chunk_len):
-        # normalize
+    dim_sel: slice
+    dim_len: int
+    dim_chunk_len: int
+    nitems: int
+
+    def __init__(self, dim_sel: slice, dim_len: int, dim_chunk_len: int):
         self.start, self.stop, self.step = dim_sel.indices(dim_len)
         if self.step < 1:
             _err_negative_step()
 
-        # store attributes
         self.dim_len = dim_len
         self.dim_chunk_len = dim_chunk_len
         self.nitems = max(0, _ceildiv((self.stop - self.start), self.step))
         self.nchunks = _ceildiv(self.dim_len, self.dim_chunk_len)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[_ChunkDimProjection]:
         # figure out the range of chunks we need to visit
         dim_chunk_ix_from = self.start // self.dim_chunk_len
         dim_chunk_ix_to = _ceildiv(self.stop, self.dim_chunk_len)
@@ -171,44 +116,31 @@ class _SliceDimIndexer:
 
 
 class _ChunkProjection(NamedTuple):
-    chunk_coords: Any
-    chunk_selection: Any
-    out_selection: Any
+    chunk_coords: ChunkCoords
+    chunk_selection: SliceSelection
+    out_selection: SliceSelection
 
 
 class BasicIndexer:
+    dim_indexers: List[_SliceDimIndexer]
+    shape: ChunkCoords
+
     def __init__(
         self,
-        selection: Union[slice, Tuple[slice, ...]],
+        selection: Selection,
         shape: Tuple[int, ...],
         chunk_shape: Tuple[int, ...],
     ):
-        # handle ellipsis
-        selection2 = _replace_ellipsis(selection, shape)
-
         # setup per-dimension indexers
-        dim_indexers = []
-        for dim_sel, dim_len, dim_chunk_len in zip(selection2, shape, chunk_shape):
-            if isinstance(dim_sel, numbers.Integral):
-                dim_indexer = _IntDimIndexer(dim_sel, dim_len, dim_chunk_len)
+        self.dim_indexers = [
+            _SliceDimIndexer(dim_sel, dim_len, dim_chunk_len)
+            for dim_sel, dim_len, dim_chunk_len in zip(
+                _ensure_selection(selection, shape), shape, chunk_shape
+            )
+        ]
+        self.shape = tuple(s.nitems for s in self.dim_indexers)
 
-            elif isinstance(dim_sel, slice):
-                dim_indexer = _SliceDimIndexer(dim_sel, dim_len, dim_chunk_len)
-
-            else:
-                raise IndexError(
-                    "unsupported selection item for basic indexing; "
-                    "expected integer or slice, got {!r}".format(type(dim_sel))
-                )
-
-            dim_indexers.append(dim_indexer)
-
-        self.dim_indexers = dim_indexers
-        self.shape = tuple(
-            s.nitems for s in self.dim_indexers if not isinstance(s, _IntDimIndexer)
-        )
-
-    def __iter__(self):
+    def __iter__(self) -> Iterator[_ChunkProjection]:
         for dim_projections in itertools.product(*self.dim_indexers):
             chunk_coords = tuple(p.dim_chunk_ix for p in dim_projections)
             chunk_selection = tuple(p.dim_chunk_sel for p in dim_projections)

@@ -1,9 +1,9 @@
 from abc import abstractmethod
-from typing import Optional, Tuple, Union
+from typing import Optional, Tuple
 
 import numpy as np
-from zarrita.common import BytesLike
 
+from zarrita.common import BytesLike
 from zarrita.store import Store
 
 

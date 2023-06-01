@@ -89,10 +89,11 @@ Licensed under MIT
 - [x] Async
 - [x] sharding partial decode
 - [x] variable renaming
-- [ ] type indexing
+- [x] type indexing
 - [ ] attrs -> dataclasses
-- [ ] value handle slices get and set
+- [x] value handle slices get and set
 - [ ] codec classes
+- [ ] perf vs zarr and wkw
 
 - Dask support
 - buffer protocol

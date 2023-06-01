@@ -1,10 +1,8 @@
 import functools
 import itertools
 import math
-from crc32c import crc32c
 from typing import (
     TYPE_CHECKING,
-    Dict,
     Iterator,
     List,
     Literal,
@@ -17,8 +15,9 @@ from typing import (
 
 import numpy as np
 from attrs import field, frozen
+from crc32c import crc32c
 
-from zarrita.common import is_total_slice, BytesLike
+from zarrita.common import BytesLike, ChunkCoords, SliceSelection, is_total_slice
 from zarrita.indexing import BasicIndexer
 from zarrita.value_handle import (
     ArrayValueHandle,
@@ -33,7 +32,6 @@ if TYPE_CHECKING:
 
 
 MAX_UINT_64 = 2**64 - 1
-ChunkCoords = Tuple[int, ...]
 
 
 @frozen
@@ -271,7 +269,7 @@ class ShardingCodecMetadata:
     async def decode_partial(
         self,
         value_handle: ValueHandle,
-        selection: Tuple[slice, ...],
+        selection: SliceSelection,
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         if isinstance(value_handle, NoneValueHandle):
@@ -408,7 +406,7 @@ class ShardingCodecMetadata:
         self,
         old_value_handle: ValueHandle,
         shard_array: np.ndarray,
-        selection: Tuple[slice, ...],
+        selection: SliceSelection,
         array_metadata: "CoreArrayMetadata",
     ) -> ValueHandle:
         shard_shape = array_metadata.chunk_shape
@@ -475,7 +473,7 @@ class ShardingCodecMetadata:
         from zarrita.array import CoreArrayMetadata
 
         # rewriting the metadata to scope it to the shard
-        core_metadata = CoreArrayMetadata(
+        CoreArrayMetadata(
             shape=array_metadata.chunk_shape,
             chunk_shape=self.configuration.chunk_shape,
             data_type=array_metadata.data_type,

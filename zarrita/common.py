@@ -1,14 +1,17 @@
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Literal, Tuple, Union
 
 from cattr import Converter
 
 if TYPE_CHECKING:
-    from zarrita.codecs import CodecMetadata
+    pass
 
 
 ZARR_JSON = "zarr.json"
 
 BytesLike = Union[bytes, bytearray, memoryview]
+ChunkCoords = Tuple[int, ...]
+SliceSelection = Tuple[slice, ...]
+Selection = Union[slice, SliceSelection]
 
 
 def is_total_slice(item, shape):

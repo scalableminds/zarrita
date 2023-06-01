@@ -1,8 +1,8 @@
+import asyncio
 from typing import List, Optional, Tuple
 
 import fsspec
 from fsspec.implementations.local import LocalFileSystem
-import asyncio
 
 
 class Store:
