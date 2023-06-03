@@ -1,11 +1,27 @@
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, List, Literal, Tuple, Union
+import asyncio
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Awaitable, Callable, List, Literal, Tuple, Union
 
 import numpy as np
 from attr import asdict, frozen
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
 
-from zarrita.sharding import ShardingCodecConfigurationMetadata, ShardingCodecMetadata
+from zarrita.common import BytesLike
+from zarrita.metadata import (
+    BloscCodecConfigurationMetadata,
+    BloscCodecMetadata,
+    CodecMetadata,
+    EndianCodecConfigurationMetadata,
+    EndianCodecMetadata,
+    GzipCodecConfigurationMetadata,
+    GzipCodecMetadata,
+    ShardingCodecConfigurationMetadata,
+    ShardingCodecMetadata,
+    TransposeCodecConfigurationMetadata,
+    TransposeCodecMetadata,
+    data_type_to_numpy,
+)
 from zarrita.value_handle import (
     ArrayValueHandle,
     BufferValueHandle,
@@ -17,96 +33,240 @@ if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
 
 
-def _needs_bytes(
+async def _needs_array(
+    chunk_value_handle: ValueHandle,
+    array_metadata: "CoreArrayMetadata",
     f: Callable[
-        [Any, bytes, "CoreArrayMetadata"],
-        Awaitable[ValueHandle],
-    ]
-) -> Callable[[Any, ValueHandle, "CoreArrayMetadata"], Awaitable[ValueHandle],]:
-    async def inner(
-        _self,
-        value: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        chunk_bytes = await value.tobytes()
-        if chunk_bytes is None:
-            return NoneValueHandle()
-        return await f(_self, chunk_bytes, array_metadata)
+        [np.ndarray, "CoreArrayMetadata"], Awaitable[Union[None, np.ndarray, BytesLike]]
+    ],
+):
+    chunk_array = await chunk_value_handle.toarray()
+    if chunk_array is None:
+        return NoneValueHandle()
+    chunk_array = chunk_array.view(dtype=array_metadata.dtype)
+    result = await f(chunk_array, array_metadata)
+    if result is None:
+        return NoneValueHandle()
+    elif (
+        isinstance(result, bytes)
+        or isinstance(result, bytearray)
+        or isinstance(result, memoryview)
+    ):
+        return BufferValueHandle(result)
+    elif isinstance(result, np.ndarray):
+        return ArrayValueHandle(result)
 
-    return inner
 
-
-def _needs_array(
+async def _needs_bytes(
+    chunk_value_handle: ValueHandle,
+    array_metadata: "CoreArrayMetadata",
     f: Callable[
-        [Any, np.ndarray, "CoreArrayMetadata"],
-        Awaitable[ValueHandle],
-    ]
-) -> Callable[[Any, ValueHandle, "CoreArrayMetadata"], Awaitable[ValueHandle],]:
-    async def inner(
-        _self,
-        value: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        chunk_array = await value.toarray()
-        if chunk_array is None:
-            return NoneValueHandle()
-        chunk_array = chunk_array.view(dtype=array_metadata.dtype)
-        return await f(_self, chunk_array, array_metadata)
-
-    return inner
-
-
-@frozen
-class BloscCodecConfigurationMetadata:
-    cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
-    clevel: int = 5
-    shuffle: Literal[0, 1, 2, -1] = 0
-    blocksize: int = 0
+        [BytesLike, "CoreArrayMetadata"], Awaitable[Union[None, np.ndarray, BytesLike]]
+    ],
+):
+    chunk_bytes = await chunk_value_handle.tobytes()
+    if chunk_bytes is None:
+        return NoneValueHandle()
+    result = await f(chunk_bytes, array_metadata)
+    if result is None:
+        return NoneValueHandle()
+    elif (
+        isinstance(result, bytes)
+        or isinstance(result, bytearray)
+        or isinstance(result, memoryview)
+    ):
+        return BufferValueHandle(result)
+    elif isinstance(result, np.ndarray):
+        return ArrayValueHandle(result)
 
 
-@frozen
-class BloscCodecMetadata:
-    configuration: BloscCodecConfigurationMetadata
-    name: Literal["blosc"] = "blosc"
+class Codec(ABC):
+    supports_partial_decode: bool
+    supports_partial_encode: bool
+    input_type: Literal["bytes", "array"]
+    output_type: Literal["bytes", "array"]
 
-    supports_partial_decode = False
-    supports_partial_encode = False
-
-    @_needs_bytes
+    @abstractmethod
     async def decode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        pass
+
+    @abstractmethod
+    async def encode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        pass
+
+    @staticmethod
+    def codecs_from_metadata(codecs_metadata: List["CodecMetadata"]) -> List["Codec"]:
+        out: List[Codec] = []
+        for codec_metadata in codecs_metadata:
+            if codec_metadata.name == "blosc":
+                out.append(BloscCodec.from_metadata(codec_metadata))
+            elif codec_metadata.name == "gzip":
+                out.append(GzipCodec.from_metadata(codec_metadata))
+            elif codec_metadata.name == "transpose":
+                out.append(TransposeCodec.from_metadata(codec_metadata))
+            elif codec_metadata.name == "endian":
+                out.append(EndianCodec.from_metadata(codec_metadata))
+            elif codec_metadata.name == "sharding_indexed":
+                from zarrita.sharding import ShardingCodec
+
+                out.append(ShardingCodec.from_metadata(codec_metadata))
+            else:
+                raise RuntimeError(f"Unsupported codec: {codec_metadata}")
+        return out
+
+
+class ArrayArrayCodec(Codec):
+    input_type = "array"
+    output_type = "array"
+
+    async def decode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        return await _needs_array(chunk_value_handle, array_metadata, self.inner_decode)
+
+    @abstractmethod
+    async def inner_decode(
+        self,
+        chunk_array: np.ndarray,
+        array_metadata: "CoreArrayMetadata",
+    ) -> np.ndarray:
+        pass
+
+    async def encode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        return await _needs_array(chunk_value_handle, array_metadata, self.inner_encode)
+
+    @abstractmethod
+    async def inner_encode(
+        self,
+        chunk_array: np.ndarray,
+        array_metadata: "CoreArrayMetadata",
+    ) -> np.ndarray:
+        pass
+
+
+class ArrayBytesCodec(Codec):
+    input_type = "array"
+    output_type = "bytes"
+
+    async def decode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        return await _needs_bytes(chunk_value_handle, array_metadata, self.inner_decode)
+
+    @abstractmethod
+    async def inner_decode(
+        self,
+        chunk_array: BytesLike,
+        array_metadata: "CoreArrayMetadata",
+    ) -> np.ndarray:
+        pass
+
+    async def encode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        return await _needs_array(chunk_value_handle, array_metadata, self.inner_encode)
+
+    @abstractmethod
+    async def inner_encode(
+        self,
+        chunk_array: np.ndarray,
+        array_metadata: "CoreArrayMetadata",
+    ) -> BytesLike:
+        pass
+
+
+class BytesBytesCodec(Codec):
+    input_type = "bytes"
+    output_type = "bytes"
+
+    async def decode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        return await _needs_bytes(chunk_value_handle, array_metadata, self.inner_decode)
+
+    @abstractmethod
+    async def inner_decode(
+        self,
+        chunk_array: BytesLike,
+        array_metadata: "CoreArrayMetadata",
+    ) -> BytesLike:
+        pass
+
+    async def encode(
+        self,
+        chunk_value_handle: ValueHandle,
+        array_metadata: "CoreArrayMetadata",
+    ) -> ValueHandle:
+        return await _needs_bytes(chunk_value_handle, array_metadata, self.inner_encode)
+
+    @abstractmethod
+    async def inner_encode(
+        self,
+        chunk_array: BytesLike,
+        array_metadata: "CoreArrayMetadata",
+    ) -> BytesLike:
+        pass
+
+
+@frozen
+class BloscCodec(BytesBytesCodec):
+    configuration: BloscCodecConfigurationMetadata
+
+    @classmethod
+    def from_metadata(cls, codec_metadata: BloscCodecMetadata) -> "BloscCodec":
+        return cls(
+            configuration=codec_metadata.configuration,
+        )
+
+    async def inner_decode(
         self,
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        return BufferValueHandle(
-            Blosc.from_config(asdict(self.configuration)).decode(chunk_bytes)
+    ) -> BytesLike:
+        return await asyncio.to_thread(
+            Blosc.from_config(asdict(self.configuration)).decode, chunk_bytes
         )
 
-    @_needs_array
-    async def encode(
+    async def inner_encode(
         self,
-        chunk_array: np.ndarray,
-        _array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        if not chunk_array.flags.c_contiguous and not chunk_array.flags.f_contiguous:
-            chunk_array = chunk_array.copy(order="K")
-        return BufferValueHandle(
-            Blosc.from_config(asdict(self.configuration)).encode(chunk_array)
+        chunk_bytes: bytes,
+        array_metadata: "CoreArrayMetadata",
+    ) -> BytesLike:
+        chunk_array = np.frombuffer(chunk_bytes, dtype=array_metadata.dtype)
+        return await asyncio.to_thread(
+            Blosc.from_config(asdict(self.configuration)).encode, chunk_array
         )
 
 
 @frozen
-class EndianCodecConfigurationMetadata:
-    endian: Literal["big", "little"] = "little"
-
-
-@frozen
-class EndianCodecMetadata:
+class EndianCodec(ArrayBytesCodec):
     configuration: EndianCodecConfigurationMetadata
-    name: Literal["endian"] = "endian"
 
-    supports_partial_decode = True
-    supports_partial_encode = True
+    @classmethod
+    def from_metadata(cls, codec_metadata: EndianCodecMetadata) -> "EndianCodec":
+        return cls(
+            configuration=codec_metadata.configuration,
+        )
 
     def _get_byteorder(self, array: np.ndarray) -> Literal["big", "little"]:
         if array.dtype.byteorder == "<":
@@ -118,52 +278,47 @@ class EndianCodecMetadata:
 
             return sys.byteorder
 
-    @_needs_array
-    async def decode(
+    async def inner_decode(
+        self,
+        chunk_bytes: BytesLike,
+        array_metadata: "CoreArrayMetadata",
+    ) -> np.ndarray:
+        if self.configuration.endian == "little":
+            prefix = "<"
+        else:
+            prefix = ">"
+        dtype = np.dtype(f"{prefix}{data_type_to_numpy[array_metadata.data_type]}")
+        chunk_array = np.frombuffer(chunk_bytes, dtype)
+        return chunk_array
+
+    async def inner_encode(
         self,
         chunk_array: np.ndarray,
         _array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
+    ) -> BytesLike:
         byteorder = self._get_byteorder(chunk_array)
         if self.configuration.endian != byteorder:
-            chunk_array = chunk_array.view(
+            chunk_array = chunk_array.astype(
                 dtype=chunk_array.dtype.newbyteorder(byteorder)
             )
-        return ArrayValueHandle(chunk_array)
-
-    @_needs_array
-    async def encode(
-        self,
-        chunk_array: np.ndarray,
-        _array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        byteorder = self._get_byteorder(chunk_array)
-        if self.configuration.endian != byteorder:
-            chunk_array = chunk_array.view(
-                dtype=chunk_array.dtype.newbyteorder(byteorder)
-            )
-        return ArrayValueHandle(chunk_array)
+        return chunk_array.tobytes()
 
 
 @frozen
-class TransposeCodecConfigurationMetadata:
-    order: Union[Literal["C", "F"], Tuple[int, ...]] = "C"
-
-
-@frozen
-class TransposeCodecMetadata:
+class TransposeCodec(ArrayArrayCodec):
     configuration: TransposeCodecConfigurationMetadata
-    name: Literal["transpose"] = "transpose"
 
-    supports_partial_decode = False
-    supports_partial_encode = False
+    @classmethod
+    def from_metadata(cls, codec_metadata: TransposeCodecMetadata) -> "TransposeCodec":
+        return cls(
+            configuration=codec_metadata.configuration,
+        )
 
-    @_needs_array
-    async def decode(
+    async def inner_decode(
         self,
         chunk_array: np.ndarray,
         array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
+    ) -> np.ndarray:
         new_order = self.configuration.order
         chunk_array = chunk_array.view(np.dtype(array_metadata.data_type.value))
         if isinstance(new_order, tuple):
@@ -178,63 +333,48 @@ class TransposeCodecMetadata:
                 array_metadata.chunk_shape,
                 order="C",
             )
-        # if array_metadata.order == "F":
-        #     chunk_array = np.asfortranarray(chunk_array)
-        # else:
-        #     chunk_array = np.ascontiguousarray(chunk_array)
-        return ArrayValueHandle(chunk_array)
+        return chunk_array
 
-    @_needs_array
-    async def encode(
+    async def inner_encode(
         self,
         chunk_array: np.ndarray,
         _array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
+    ) -> np.ndarray:
         new_order = self.configuration.order
         if isinstance(new_order, tuple):
             chunk_array = chunk_array.transpose(new_order).reshape(-1, order="C")
         else:
             chunk_array = chunk_array.ravel(order=new_order)
-        return ArrayValueHandle(chunk_array)
+        return chunk_array
 
 
 @frozen
-class GzipCodecConfigurationMetadata:
-    level: int = 5
-
-
-@frozen
-class GzipCodecMetadata:
+class GzipCodec(BytesBytesCodec):
     configuration: GzipCodecConfigurationMetadata
-    name: Literal["gzip"] = "gzip"
 
-    supports_partial_decode = False
-    supports_partial_encode = False
+    @classmethod
+    def from_metadata(cls, codec_metadata: GzipCodecMetadata) -> "GzipCodec":
+        return cls(
+            configuration=codec_metadata.configuration,
+        )
 
-    @_needs_bytes
-    async def decode(
+    async def inner_decode(
         self,
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        return BufferValueHandle(GZip(self.configuration.level).decode(chunk_bytes))
+    ) -> BytesLike:
+        return await asyncio.to_thread(
+            GZip(self.configuration.level).decode, chunk_bytes
+        )
 
-    @_needs_bytes
-    async def encode(
+    async def inner_encode(
         self,
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
-    ) -> ValueHandle:
-        return BufferValueHandle(GZip(self.configuration.level).encode(chunk_bytes))
-
-
-CodecMetadata = Union[
-    BloscCodecMetadata,
-    EndianCodecMetadata,
-    TransposeCodecMetadata,
-    GzipCodecMetadata,
-    ShardingCodecMetadata,
-]
+    ) -> BytesLike:
+        return await asyncio.to_thread(
+            GZip(self.configuration.level).encode, chunk_bytes
+        )
 
 
 def blosc_codec(

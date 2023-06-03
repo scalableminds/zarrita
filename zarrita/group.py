@@ -1,4 +1,3 @@
-import asyncio
 import json
 from typing import Any, Dict, Literal, Optional, Union
 
@@ -7,6 +6,7 @@ from attr import asdict, field, frozen
 from zarrita.array import Array, ArrayRuntimeConfiguration
 from zarrita.common import ZARR_JSON, make_cattr
 from zarrita.store import Store
+from zarrita.sync import sync
 
 
 @frozen
@@ -36,9 +36,7 @@ class Group:
     def create(
         cls, store: "Store", path: str, *, attributes: Optional[Dict[str, Any]] = None
     ) -> "Group":
-        return asyncio.get_event_loop().run_until_complete(
-            cls.create_async(store, path, attributes=attributes)
-        )
+        return sync(cls.create_async(store, path, attributes=attributes))
 
     @classmethod
     async def open_async(cls, store: "Store", path: str) -> "Group":
@@ -48,7 +46,7 @@ class Group:
 
     @classmethod
     def open(cls, store: "Store", path: str) -> "Group":
-        return asyncio.get_event_loop().run_until_complete(cls.open_async(store, path))
+        return sync(cls.open_async(store, path))
 
     @classmethod
     def from_json(cls, store: Store, path: str, zarr_json: Any) -> "Group":
@@ -87,25 +85,21 @@ class Group:
         return await Group.open_or_array(self.store, path)
 
     def __getitem__(self, path: str) -> Union[Array, "Group"]:
-        return asyncio.get_event_loop().run_until_complete(self.get_async(path))
+        return sync(self.get_async(path))
 
     async def create_group_async(self, path: str, **kwargs) -> "Group":
         path = self._dereference_path(path)
         return await Group.create_async(self.store, path, **kwargs)
 
     def create_group(self, path: str, **kwargs) -> "Group":
-        return asyncio.get_event_loop().run_until_complete(
-            self.create_group_async(path)
-        )
+        return sync(self.create_group_async(path))
 
     async def create_array_async(self, path: str, **kwargs) -> Array:
         path = self._dereference_path(path)
         return await Array.create_async(self.store, path, **kwargs)
 
     def create_array(self, path: str, **kwargs) -> "Array":
-        return asyncio.get_event_loop().run_until_complete(
-            self.create_array_async(path, **kwargs)
-        )
+        return sync(self.create_array_async(path, **kwargs))
 
     def __repr__(self):
         path = self.path

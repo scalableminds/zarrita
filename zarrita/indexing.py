@@ -1,8 +1,8 @@
 import itertools
 import math
-from typing import Any, Iterator, List, NamedTuple, Optional, Tuple, Union
+from typing import Iterator, List, NamedTuple, Optional, Tuple
 
-from zarrita.common import ChunkCoords, Selection, SliceSelection
+from zarrita.common import ChunkCoords, Selection, SliceSelection, product
 
 
 def _ensure_tuple(v: Selection) -> SliceSelection:
@@ -59,6 +59,10 @@ class _SliceDimIndexer:
     dim_len: int
     dim_chunk_len: int
     nitems: int
+
+    start: int
+    stop: int
+    step: int
 
     def __init__(self, dim_sel: slice, dim_len: int, dim_chunk_len: int):
         self.start, self.stop, self.step = dim_sel.indices(dim_len)
@@ -149,3 +153,57 @@ class BasicIndexer:
             )
 
             yield _ChunkProjection(chunk_coords, chunk_selection, out_selection)
+
+
+def morton_order_iter(chunk_shape: ChunkCoords) -> Iterator[ChunkCoords]:
+    def decode_morton(z: int, chunk_shape: ChunkCoords) -> ChunkCoords:
+        # Inspired by compressed morton code as implemented in Neuroglancer
+        # https://github.com/google/neuroglancer/blob/master/src/neuroglancer/datasource/precomputed/volume.md#compressed-morton-code
+        bits = tuple(math.ceil(math.log2(c)) for c in chunk_shape)
+        max_coords_bits = max(*bits)
+        input_bit = 0
+        input_value = z
+        out = [0 for _ in range(len(chunk_shape))]
+
+        for coord_bit in range(max_coords_bits):
+            for dim in range(len(chunk_shape)):
+                if coord_bit < bits[dim]:
+                    bit = (input_value >> input_bit) & 1
+                    out[dim] |= bit << coord_bit
+                    input_bit += 1
+        return tuple(out)
+
+    for i in range(product(chunk_shape)):
+        yield decode_morton(i, chunk_shape)
+
+
+def c_order_iter(chunks_per_shard: ChunkCoords) -> Iterator[ChunkCoords]:
+    return itertools.product(*(range(x) for x in chunks_per_shard))
+
+
+def is_total_slice(item: Selection, shape: ChunkCoords):
+    """Determine whether `item` specifies a complete slice of array with the
+    given `shape`. Used to optimize __setitem__ operations on the Chunk
+    class."""
+
+    # N.B., assume shape is normalized
+    if item == slice(None):
+        return True
+    if isinstance(item, slice):
+        item = (item,)
+    if isinstance(item, tuple):
+        return all(
+            (
+                isinstance(dim_sel, slice)
+                and (
+                    (dim_sel == slice(None))
+                    or (
+                        (dim_sel.stop - dim_sel.start == dim_len)
+                        and (dim_sel.step in [1, None])
+                    )
+                )
+            )
+            for dim_sel, dim_len in zip(item, shape)
+        )
+    else:
+        raise TypeError("expected slice or tuple of slices, found %r" % item)

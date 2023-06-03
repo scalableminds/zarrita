@@ -93,7 +93,12 @@ Licensed under MIT
 - [ ] attrs -> dataclasses
 - [x] value handle slices get and set
 - [ ] codec classes
-- [ ] perf vs zarr and wkw
+- [x] perf vs zarr and wkw: write is ok, read is slow
+- [x] better async syntax
+- [x] metadata validation
+- [ ] zarr v2
+- [x] async gather in sharding
+- [ ] morton order in indexing
 
 - Dask support
 - buffer protocol

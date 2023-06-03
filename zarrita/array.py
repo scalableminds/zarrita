@@ -1,145 +1,35 @@
 import asyncio
 import json
-from enum import Enum
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from warnings import warn
 
 import numpy as np
-from attr import asdict, field, frozen
+from attr import asdict, frozen
 
-from zarrita.codecs import CodecMetadata
-from zarrita.common import (
-    ZARR_JSON,
-    ChunkCoords,
-    Selection,
-    SliceSelection,
-    is_total_slice,
-    make_cattr,
+from zarrita.codecs import Codec, CodecMetadata
+from zarrita.common import ZARR_JSON, ChunkCoords, Selection, SliceSelection, make_cattr
+from zarrita.indexing import BasicIndexer, is_total_slice
+from zarrita.metadata import (
+    ArrayMetadata,
+    CoreArrayMetadata,
+    DataType,
+    DefaultChunkKeyEncodingConfigurationMetadata,
+    DefaultChunkKeyEncodingMetadata,
+    RegularChunkGridConfigurationMetadata,
+    RegularChunkGridMetadata,
+    V2ChunkKeyEncodingConfigurationMetadata,
+    V2ChunkKeyEncodingMetadata,
+    dtype_to_data_type,
 )
-from zarrita.indexing import BasicIndexer
+from zarrita.sharding import ShardingCodec
 from zarrita.store import Store
+from zarrita.sync import sync
 from zarrita.value_handle import (
     ArrayValueHandle,
     FileValueHandle,
     NoneValueHandle,
     ValueHandle,
 )
-
-
-class DataType(Enum):
-    bool = "bool"
-    int8 = "int8"
-    int16 = "int16"
-    int32 = "int32"
-    int64 = "int64"
-    uint8 = "uint8"
-    uint16 = "uint16"
-    uint32 = "uint32"
-    uint64 = "uint64"
-    float32 = "float32"
-    float64 = "float64"
-
-
-dtype_to_data_type = {
-    "bool": "bool",
-    "|i1": "int8",
-    "<i2": "int16",
-    "<i4": "int32",
-    "<i8": "int64",
-    "|u1": "uint8",
-    "<u2": "uint16",
-    "<u4": "uint32",
-    "<u8": "uint64",
-    "<f4": "float32",
-    "<f8": "float64",
-}
-
-
-@frozen
-class RegularChunkGridConfigurationMetadata:
-    chunk_shape: ChunkCoords
-
-
-@frozen
-class RegularChunkGridMetadata:
-    configuration: RegularChunkGridConfigurationMetadata
-    name: Literal["regular"] = "regular"
-
-
-@frozen
-class DefaultChunkKeyEncodingConfigurationMetadata:
-    separator: Literal[".", "/"] = "/"
-
-
-@frozen
-class DefaultChunkKeyEncodingMetadata:
-    configuration: DefaultChunkKeyEncodingConfigurationMetadata = (
-        DefaultChunkKeyEncodingConfigurationMetadata()
-    )
-    name: Literal["default"] = "default"
-
-    def decode_chunk_key(self, chunk_key: str) -> ChunkCoords:
-        if chunk_key == "c":
-            return ()
-        return tuple(map(int, chunk_key[1:].split(self.configuration.separator)))
-
-    def encode_chunk_key(self, chunk_coords: ChunkCoords) -> str:
-        return self.configuration.separator.join(map(str, ("c",) + chunk_coords))
-
-
-@frozen
-class V2ChunkKeyEncodingConfigurationMetadata:
-    separator: Literal[".", "/"] = "."
-
-
-@frozen
-class V2ChunkKeyEncodingMetadata:
-    configuration: V2ChunkKeyEncodingConfigurationMetadata = (
-        V2ChunkKeyEncodingConfigurationMetadata()
-    )
-    name: Literal["v2"] = "v2"
-
-    def decode_chunk_key(self, chunk_key: str) -> ChunkCoords:
-        return tuple(map(int, chunk_key.split(self.configuration.separator)))
-
-    def encode_chunk_key(self, chunk_coords: ChunkCoords) -> str:
-        chunk_identifier = self.configuration.separator.join(map(str, chunk_coords))
-        return "0" if chunk_identifier == "" else chunk_identifier
-
-
-ChunkKeyEncodingMetadata = Union[
-    DefaultChunkKeyEncodingMetadata, V2ChunkKeyEncodingMetadata
-]
-
-
-@frozen
-class CoreArrayMetadata:
-    shape: ChunkCoords
-    chunk_shape: ChunkCoords
-    data_type: DataType
-    fill_value: Any
-    order: Literal["C", "F"]
-
-    @property
-    def dtype(self) -> np.dtype:
-        return np.dtype(self.data_type.value)
-
-
-@frozen
-class ArrayMetadata:
-    shape: ChunkCoords
-    data_type: DataType
-    chunk_grid: RegularChunkGridMetadata
-    chunk_key_encoding: ChunkKeyEncodingMetadata
-    fill_value: Any
-    attributes: Dict[str, Any] = field(factory=dict)
-    codecs: List[CodecMetadata] = field(factory=list)
-    dimension_names: Optional[Tuple[str, ...]] = None
-    zarr_format: Literal[3] = 3
-    node_type: Literal["array"] = "array"
-
-    @property
-    def dtype(self) -> np.dtype:
-        return np.dtype(self.data_type.value)
 
 
 @frozen
@@ -152,11 +42,32 @@ def runtime_configuration(order: Literal["C", "F"]) -> ArrayRuntimeConfiguration
 
 
 @frozen
+class _AsyncArrayProxy:
+    array: "Array"
+
+    def __getitem__(self, selection: Selection) -> "_AsyncArraySelectionProxy":
+        return _AsyncArraySelectionProxy(self.array, selection)
+
+
+@frozen
+class _AsyncArraySelectionProxy:
+    array: "Array"
+    selection: Selection
+
+    async def get(self) -> np.ndarray:
+        return await self.array.get_async(self.selection)
+
+    async def set(self, value: np.ndarray):
+        return await self.array.set_async(self.selection, value)
+
+
+@frozen
 class Array:
     metadata: ArrayMetadata
     store: "Store"
     path: str
     runtime_configuration: ArrayRuntimeConfiguration
+    codecs: List[Codec]
 
     @classmethod
     async def create_async(
@@ -216,6 +127,7 @@ class Array:
             runtime_configuration=runtime_configuration
             if runtime_configuration
             else ArrayRuntimeConfiguration(),
+            codecs=Codec.codecs_from_metadata(metadata.codecs),
         )
         await array._save_metadata()
         return array
@@ -239,7 +151,7 @@ class Array:
         attributes: Optional[Dict[str, Any]] = None,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> "Array":
-        return asyncio.get_event_loop().run_until_complete(
+        return sync(
             cls.create_async(
                 store,
                 path,
@@ -275,7 +187,7 @@ class Array:
 
     @classmethod
     def open(cls, store: "Store", path: str) -> "Array":
-        return asyncio.get_event_loop().run_until_complete(cls.open_async(store, path))
+        return sync(cls.open_async(store, path))
 
     @classmethod
     def from_json(
@@ -285,12 +197,16 @@ class Array:
         zarr_json: Any,
         runtime_configuration: ArrayRuntimeConfiguration,
     ) -> "Array":
-        return cls(
-            metadata=make_cattr().structure(zarr_json, ArrayMetadata),
+        metadata = make_cattr().structure(zarr_json, ArrayMetadata)
+        out = cls(
+            metadata=metadata,
             store=store,
             path=path,
             runtime_configuration=runtime_configuration,
+            codecs=Codec.codecs_from_metadata(metadata.codecs),
         )
+        out._validate_metadata()
+        return out
 
     async def _save_metadata(self) -> None:
         def convert(o):
@@ -298,10 +214,62 @@ class Array:
                 return o.name
             raise TypeError
 
+        self._validate_metadata()
+
         await self.store.set_async(
             f"{self.path}/{ZARR_JSON}",
             json.dumps(asdict(self.metadata), default=convert).encode(),
         )
+
+    def _validate_metadata(self) -> None:
+        assert len(self.metadata.shape) == len(
+            self.metadata.chunk_grid.configuration.chunk_shape
+        ), "`chunk_shape` and `shape` need to have the same number of dimensions."
+        assert self.metadata.dimension_names is None or len(self.metadata.shape) == len(
+            self.metadata.dimension_names
+        ), "`dimension_names` and `shape` need to have the same number of dimensions."
+        assert self.metadata.fill_value is not None, "`fill_value` is required."
+
+        prev_codec: Optional[Codec] = None
+        for codec in self.codecs:
+            assert (
+                prev_codec is None
+                or codec.input_type == "bytes"
+                or (codec.input_type == "array" and prev_codec.output_type == "array")
+            ), (
+                "Ordering of codecs is invalid. Codecs that take arrays as input need "
+                + "to be placed before codecs that output bytes."
+            )
+            if isinstance(codec, ShardingCodec):
+                assert len(codec.configuration.chunk_shape) == len(
+                    self.metadata.shape
+                ), (
+                    "The shard's `chunk_shape` and array's `shape` need to have the "
+                    + "same number of dimensions."
+                )
+                assert all(
+                    s % c == 0
+                    for s, c in zip(
+                        self.metadata.chunk_grid.configuration.chunk_shape,
+                        codec.configuration.chunk_shape,
+                    )
+                ), (
+                    "The array's `chunk_shape` needs to be divisible by the "
+                    + "shard's inner `chunk_shape`."
+                )
+            prev_codec = codec
+
+        if (
+            any(
+                codec_metadata.name == "sharding_indexed"
+                for codec_metadata in self.metadata.codecs
+            )
+            and len(self.metadata.codecs) > 1
+        ):
+            warn(
+                "Combining a `sharding_indexed` codec disables partial reads and "
+                + "writes, which may lead to inefficient performance."
+            )
 
     @property
     def ndim(self) -> int:
@@ -317,8 +285,12 @@ class Array:
             order=self.runtime_configuration.order,
         )
 
+    @property
+    def async_(self) -> _AsyncArrayProxy:
+        return _AsyncArrayProxy(self)
+
     def __getitem__(self, selection: Selection):
-        return asyncio.get_event_loop().run_until_complete(self.get_async(selection))
+        return sync(self.get_async(selection))
 
     async def get_async(self, selection: Selection):
         indexer = BasicIndexer(
@@ -352,11 +324,8 @@ class Array:
         chunk_key = f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
         value_handle = FileValueHandle(self.store, chunk_key)
 
-        if (
-            len(self.metadata.codecs) == 1
-            and self.metadata.codecs[0].name == "sharding_indexed"
-        ):
-            value_handle = await self.metadata.codecs[0].decode_partial(
+        if len(self.codecs) == 1 and isinstance(self.codecs[0], ShardingCodec):
+            value_handle = await self.codecs[0].decode_partial(
                 value_handle, chunk_selection, self._core_metadata
             )
             chunk_array = await value_handle.toarray()
@@ -379,10 +348,8 @@ class Array:
             return None
 
         # apply codecs in reverse order
-        for codec_metadata in self.metadata.codecs[::-1]:
-            value_handle = await codec_metadata.decode(
-                value_handle, self._core_metadata
-            )
+        for codec in self.codecs[::-1]:
+            value_handle = await codec.decode(value_handle, self._core_metadata)
 
         chunk_array = await value_handle.toarray()
         if chunk_array is None:
@@ -402,7 +369,7 @@ class Array:
         return chunk_array
 
     def __setitem__(self, selection: Selection, value: np.ndarray) -> None:
-        asyncio.get_event_loop().run_until_complete(self.set_async(selection, value))
+        sync(self.set_async(selection, value))
 
     async def set_async(self, selection: Selection, value: np.ndarray) -> None:
         chunk_shape = self.metadata.chunk_grid.configuration.chunk_shape
@@ -464,11 +431,8 @@ class Array:
                 chunk_array = value[out_selection]
             await self._write_chunk_to_store(value_handle, chunk_array)
 
-        elif (
-            len(self.metadata.codecs) == 1
-            and self.metadata.codecs[0].name == "sharding_indexed"
-        ):
-            sharding_codec = self.metadata.codecs[0]
+        elif len(self.codecs) == 1 and isinstance(self.codecs[0], ShardingCodec):
+            sharding_codec = self.codecs[0]
             chunk_value = await sharding_codec.encode_partial(
                 value_handle,
                 value[out_selection],
@@ -515,7 +479,7 @@ class Array:
 
     async def _encode_chunk(self, chunk_array: np.ndarray):
         encoded_chunk_value: ValueHandle = ArrayValueHandle(chunk_array)
-        for codec in self.metadata.codecs:
+        for codec in self.codecs:
             encoded_chunk_value = await codec.encode(
                 encoded_chunk_value,
                 self._core_metadata,

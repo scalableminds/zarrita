@@ -1,3 +1,4 @@
+import functools
 from typing import TYPE_CHECKING, Any, Dict, Literal, Tuple, Union
 
 from cattr import Converter
@@ -14,47 +15,17 @@ SliceSelection = Tuple[slice, ...]
 Selection = Union[slice, SliceSelection]
 
 
-def is_total_slice(item, shape):
-    """Determine whether `item` specifies a complete slice of array with the
-    given `shape`. Used to optimize __setitem__ operations on the Chunk
-    class."""
-
-    # N.B., assume shape is normalized
-
-    if item == Ellipsis:
-        return True
-    if item == slice(None):
-        return True
-    if isinstance(item, slice):
-        item = (item,)
-    if isinstance(item, tuple):
-        return all(
-            (
-                isinstance(s, slice)
-                and (
-                    (s == slice(None))
-                    or ((s.stop - s.start == l) and (s.step in [1, None]))
-                )
-            )
-            for s, l in zip(item, shape)
-        )
-    else:
-        raise TypeError("expected slice or tuple of slices, found %r" % item)
-
-
 def make_cattr():
-    from zarrita.array import (
-        ChunkKeyEncodingMetadata,
-        DefaultChunkKeyEncodingMetadata,
-        V2ChunkKeyEncodingMetadata,
-    )
-    from zarrita.codecs import (
+    from zarrita.metadata import (
         BloscCodecMetadata,
+        ChunkKeyEncodingMetadata,
         CodecMetadata,
+        DefaultChunkKeyEncodingMetadata,
         EndianCodecMetadata,
         GzipCodecMetadata,
         ShardingCodecMetadata,
         TransposeCodecMetadata,
+        V2ChunkKeyEncodingMetadata,
     )
 
     dataset_converter = Converter()
@@ -108,3 +79,7 @@ def make_cattr():
     )
 
     return dataset_converter
+
+
+def product(tup: ChunkCoords) -> int:
+    return functools.reduce(lambda x, y: x * y, tup, 1)
