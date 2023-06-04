@@ -14,9 +14,7 @@ from pytest import fixture
 
 from zarrita import *
 
-TEST_SHAPE = tuple(
-    slice(0, int(a)) for a in os.environ.get("TEST_SIZE", "1024,1024,1024").split(",")
-)
+TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
 
 TESTDATA: List[Tuple[str, np.ndarray]] = [
     (
@@ -24,14 +22,14 @@ TESTDATA: List[Tuple[str, np.ndarray]] = [
         wk.Dataset.open("l4_sample")
         .get_layer("color")
         .get_mag(1)
-        .read()[0][TEST_SHAPE],
+        .read()[0][:TEST_SIZE, :TEST_SIZE, :TEST_SIZE],
     ),
     (
         "segmentation",
         wk.Dataset.open("l4_sample")
         .get_layer("segmentation")
         .get_mag(1)
-        .read()[0][TEST_SHAPE],
+        .read()[0][:TEST_SIZE, :TEST_SIZE, :TEST_SIZE],
     ),
 ]
 
@@ -110,6 +108,7 @@ def test_wkw(folder: Path, layer_name: str, testdata: np.ndarray, codec: str):
             block_type=wkw.Header.BLOCK_TYPE_LZ4
             if codec == "lz4"
             else wkw.Header.BLOCK_TYPE_LZ4HC,
+            file_len=TEST_SIZE // 32,
         ),
     ) as ds:
         start = default_timer()
