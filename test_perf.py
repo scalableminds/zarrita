@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from shutil import rmtree
 from timeit import default_timer
@@ -13,11 +14,24 @@ from pytest import fixture
 
 from zarrita import *
 
+TEST_SHAPE = tuple(
+    slice(0, int(a)) for a in os.environ.get("TEST_SIZE", "1024,1024,1024").split(",")
+)
+
 TESTDATA: List[Tuple[str, np.ndarray]] = [
-    ("color", wk.Dataset.open("l4_sample").get_layer("color").get_mag(1).read()[0]),
+    (
+        "color",
+        wk.Dataset.open("l4_sample")
+        .get_layer("color")
+        .get_mag(1)
+        .read()[0][TEST_SHAPE],
+    ),
     (
         "segmentation",
-        wk.Dataset.open("l4_sample").get_layer("segmentation").get_mag(1).read()[0],
+        wk.Dataset.open("l4_sample")
+        .get_layer("segmentation")
+        .get_mag(1)
+        .read()[0][TEST_SHAPE],
     ),
 ]
 

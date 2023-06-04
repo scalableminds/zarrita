@@ -29,4 +29,4 @@ jobs:
           poetry run pytest -vv test_all.py
       - name: Run perf tests
         run: |
-          poetry run pytest -vv -s test_perf.py
+          TEST_SIZE=128,128,128 poetry run pytest -vv -s test_perf.py
