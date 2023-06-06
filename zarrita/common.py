@@ -1,6 +1,7 @@
 import functools
 from typing import TYPE_CHECKING, Any, Dict, Literal, Tuple, Union
 
+import numpy as np
 from cattr import Converter
 
 if TYPE_CHECKING:
@@ -76,6 +77,31 @@ def make_cattr():
         lambda t: str(t)
         == "typing.Union[typing.Literal['C', 'F'], typing.Tuple[int, ...]]",
         lambda t: _structure_order,
+    )
+
+    # Needed for v2 fill_value
+    def _structure_fill_value(d: Any, _t=None) -> Union[None, int, float]:
+        if d is None:
+            return None
+        try:
+            return int(d)
+        except ValueError:
+            pass
+        try:
+            return float(d)
+        except ValueError:
+            pass
+        raise ValueError
+
+    dataset_converter.register_structure_hook_factory(
+        lambda t: str(t) == "typing.Union[NoneType, int, float]",
+        lambda t: _structure_fill_value,
+    )
+
+    # Needed for v2 dtype
+    dataset_converter.register_structure_hook(
+        np.dtype,
+        lambda d, _: np.dtype(d),
     )
 
     return dataset_converter

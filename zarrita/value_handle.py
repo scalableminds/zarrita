@@ -121,7 +121,7 @@ class ArrayValueHandle(ValueHandle):
     async def tobytes(self) -> Optional[bytes]:
         array = self.array
         if not array.flags.c_contiguous and not array.flags.f_contiguous:
-            array = array.copy(order="K")
+            array = array.copy(order="A")
         return array.tobytes()
 
     async def toarray(

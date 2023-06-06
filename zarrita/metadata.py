@@ -204,3 +204,16 @@ class ArrayMetadata:
     @property
     def dtype(self) -> np.dtype:
         return np.dtype(self.data_type.value)
+
+
+@frozen
+class ArrayV2Metadata:
+    shape: ChunkCoords
+    chunks: ChunkCoords
+    dtype: np.dtype
+    fill_value: Union[None, int, float] = 0
+    order: Literal["C", "F"] = "C"
+    filters: Optional[List[Dict[str, Any]]] = None
+    dimension_separator: Literal[".", "/"] = "."
+    compressor: Optional[Dict[str, Any]] = None
+    zarr_format: Literal[2] = 2

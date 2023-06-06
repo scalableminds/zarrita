@@ -14,7 +14,7 @@ store = zarrita.FileSystemStore('file://./testdata')
 ## Create an array
 
 ```python
-a = zarrita.Array.create(
+a = await zarrita.Array.create_async(
     store,
     'array',
     shape=(6, 10),
@@ -23,20 +23,20 @@ a = zarrita.Array.create(
     codecs=[zarrita.codecs.gzip_codec(level=1)],
     attributes={'question': 'life', 'answer': 42}
 )
-a[:, :] = np.ones((6, 10), dtype='int32')
+await a.async_[:, :].set(np.ones((6, 10), dtype='int32'))
 ```
 
 ## Open an array
 
 ```python
-a = zarrita.Array.open(store, 'array')
-assert np.array_equal(a[:, :], np.ones((6, 10), dtype='int32'))
+a = await zarrita.Array.open_async(store, 'array')
+assert np.array_equal(await a.async_[:, :].get(), np.ones((6, 10), dtype='int32'))
 ```
 
 ## Create an array with sharding
 
 ```python
-a = zarrita.Array.create(
+a = await zarrita.Array.create_async(
     store,
     'sharding',
     shape=(16, 16),
@@ -51,31 +51,31 @@ a = zarrita.Array.create(
     ],
 )
 data = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
-a[:, :] = data
-assert np.array_equal(a[:, :], data)
+await a.async_[:, :].set(data)
+assert np.array_equal(await a.async_[:, :].get(), data)
 ```
 
 ## Create a group
 
 ```python
-g = zarrita.Group.create(store, 'group')
-g2 = g.create_group('group2')
-a = g2.create_array(
+g = await zarrita.Group.create_async(store, 'group')
+g2 = await g.create_group_async('group2')
+a = await g2.create_array_async(
     'array',
     shape=(16, 16),
     dtype='int32',
     chunk_shape=(16, 16),
 )
-a[:, :] = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
+await a.async_[:, :].set(np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
 ```
 
 ## Open a group
 
 ```python
-g = zarrita.Group.open(store, 'group')
+g = await zarrita.Group.open_async(store, 'group')
 g2 = g['group2']
 a = g['group2/array']
-assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
+assert np.array_equal(await a.asnyc_[:, :].get(), np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
 ```
 
 # Credits
@@ -92,13 +92,15 @@ Licensed under MIT
 - [x] type indexing
 - [ ] attrs -> dataclasses
 - [x] value handle slices get and set
-- [ ] codec classes
+- [x] codec classes
 - [x] perf vs zarr and wkw: write is ok, read is slow
 - [x] better async syntax
 - [x] metadata validation
-- [ ] zarr v2
+- [x] zarr v2
+- [ ] open with v2/v3 auto-detect
 - [x] async gather in sharding
 - [ ] morton order in indexing
+- [ ] resize arrays
 
 - Dask support
 - buffer protocol

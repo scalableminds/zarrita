@@ -1,3 +1,4 @@
+import json
 from shutil import rmtree
 
 import numpy as np
@@ -101,6 +102,12 @@ def test_order_F(store):
 
     a[:, :] = data
     read_data = a[:, :]
+
+    a = zarrita.Array.open(
+        store,
+        "order_F",
+        runtime_configuration=zarrita.runtime_configuration(order="F"),
+    )
     assert np.array_equal(data, read_data)
     assert read_data.flags["F_CONTIGUOUS"]
     assert not read_data.flags["C_CONTIGUOUS"]
@@ -482,7 +489,8 @@ def test_gzip(store):
     assert np.array_equal(data, a[:, :])
 
 
-def test_endian(store):
+@pytest.mark.parametrize("endian", ["big", "little"])
+def test_endian(store, endian):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
     a = zarrita.Array.create(
@@ -492,7 +500,25 @@ def test_endian(store):
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[zarrita.codecs.endian_codec("big")],
+        codecs=[zarrita.codecs.endian_codec(endian)],
+    )
+
+    a[:, :] = data
+    readback_data = a[:, :]
+    assert np.array_equal(data, readback_data)
+
+
+@pytest.mark.parametrize("dtype_endian", [">u2", "<u2"])
+def test_endian_write(store, dtype_endian):
+    data = np.arange(0, 256, dtype=">u2").reshape((16, 16))
+
+    a = zarrita.Array.create(
+        store,
+        "endian",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype="uint16",
+        fill_value=0,
     )
 
     a[:, :] = data
@@ -563,3 +589,24 @@ def test_invalid_metadata(store):
                 zarrita.codecs.gzip_codec(),
             ],
         )
+
+
+async def check_zarr2_files(store, folder_a, folder_b):
+    assert json.loads(await store.get_async(f"{folder_a}/.zarray")) == json.loads(
+        await store.get_async(f"{folder_b}/.zarray")
+    )
+    # assert json.loads(await store.get_async(f"{folder_a}/.zattrs")) == json.loads(
+    #     await store.get_async(f"{folder_b}/.zattrs")
+    # )
+    assert await store.get_async(f"{folder_a}/0.0") == await store.get_async(
+        f"{folder_b}/0.0"
+    )
+    assert await store.get_async(f"{folder_a}/0.1") == await store.get_async(
+        f"{folder_b}/0.1"
+    )
+    assert await store.get_async(f"{folder_a}/1.0") == await store.get_async(
+        f"{folder_b}/1.0"
+    )
+    assert await store.get_async(f"{folder_a}/1.1") == await store.get_async(
+        f"{folder_b}/1.1"
+    )

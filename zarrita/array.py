@@ -186,8 +186,15 @@ class Array:
         )
 
     @classmethod
-    def open(cls, store: "Store", path: str) -> "Array":
-        return sync(cls.open_async(store, path))
+    def open(
+        cls,
+        store: "Store",
+        path: str,
+        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+    ) -> "Array":
+        return sync(
+            cls.open_async(store, path, runtime_configuration=runtime_configuration)
+        )
 
     @classmethod
     def from_json(
@@ -390,7 +397,7 @@ class Array:
                 value = np.asarray(value, self.metadata.dtype)
             assert value.shape == sel_shape
             if value.dtype != self.metadata.dtype:
-                value = value.astype(self.metadata.dtype, order="K")
+                value = value.astype(self.metadata.dtype, order="A")
 
         # merging with existing data and encoding chunks
         await asyncio.gather(
