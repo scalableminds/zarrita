@@ -7,7 +7,15 @@ import numpy as np
 from attr import asdict, frozen
 from numcodecs.compat import ensure_bytes, ensure_ndarray
 
-from zarrita.common import BytesLike, ChunkCoords, Selection, SliceSelection, make_cattr
+from zarrita.common import (
+    ZARRAY_JSON,
+    ZATTRS_JSON,
+    BytesLike,
+    ChunkCoords,
+    Selection,
+    SliceSelection,
+    make_cattr,
+)
 from zarrita.indexing import BasicIndexer, is_total_slice
 from zarrita.metadata import ArrayV2Metadata
 from zarrita.store import Store
@@ -18,9 +26,6 @@ from zarrita.value_handle import (
     NoneValueHandle,
     ValueHandle,
 )
-
-ZARRAY = ".zarray"
-ZATTRS = ".zattrs"
 
 
 @frozen
@@ -65,7 +70,11 @@ class ArrayV2:
         filters: Optional[List[Dict[str, Any]]] = None,
         compressor: Optional[Dict[str, Any]] = None,
         attributes: Optional[Dict[str, Any]] = None,
+        exists_ok: bool = False,
     ) -> "ArrayV2":
+        if not exists_ok:
+            assert not await store.exists_async(f"{path}/{ZARRAY_JSON}")
+
         metadata = ArrayV2Metadata(
             shape=shape,
             dtype=dtype,
@@ -104,6 +113,7 @@ class ArrayV2:
         filters: Optional[List[Dict[str, Any]]] = None,
         compressor: Optional[Dict[str, Any]] = None,
         attributes: Optional[Dict[str, Any]] = None,
+        exists_ok: bool = False,
     ) -> "ArrayV2":
         return sync(
             cls.create_async(
@@ -118,6 +128,7 @@ class ArrayV2:
                 compressor=compressor,
                 filters=filters,
                 attributes=attributes,
+                exists_ok=exists_ok,
             )
         )
 
@@ -127,9 +138,11 @@ class ArrayV2:
         store: "Store",
         path: str,
     ) -> "ArrayV2":
-        zarray_bytes = await store.get_async(f"{path}/{ZARRAY}")
+        zarray_bytes, zattrs_bytes = await asyncio.gather(
+            store.get_async(f"{path}/{ZARRAY_JSON}"),
+            store.get_async(f"{path}/{ZATTRS_JSON}"),
+        )
         assert zarray_bytes is not None
-        zattrs_bytes = await store.get_async(f"{path}/{ZATTRS}")
         return cls.from_json(
             store,
             path,
@@ -175,19 +188,23 @@ class ArrayV2:
                     return o.str
                 else:
                     return o.descr
-                return str(o)
             raise TypeError
 
         self._validate_metadata()
 
         await self.store.set_async(
-            f"{self.path}/{ZARRAY}",
+            f"{self.path}/{ZARRAY_JSON}",
             json.dumps(asdict(self.metadata), default=convert).encode(),
         )
-        await self.store.set_async(
-            f"{self.path}/{ZATTRS}",
-            json.dumps(self.attributes, default=convert).encode(),
-        )
+        if self.attributes is not None and len(self.attributes) > 0:
+            await self.store.set_async(
+                f"{self.path}/{ZATTRS_JSON}",
+                json.dumps(self.attributes).encode(),
+            )
+        else:
+            await self.store.delete_async(
+                f"{self.path}/{ZATTRS_JSON}",
+            )
 
     def _validate_metadata(self) -> None:
         assert len(self.metadata.shape) == len(

@@ -97,10 +97,12 @@ Licensed under MIT
 - [x] better async syntax
 - [x] metadata validation
 - [x] zarr v2
-- [ ] open with v2/v3 auto-detect
+- [x] open with v2/v3 auto-detect
 - [x] async gather in sharding
+- [x] async local store
 - [ ] morton order in indexing
-- [ ] resize arrays
+- [x] resize arrays
+- [x] check empty before create array
 
 - Dask support
 - buffer protocol

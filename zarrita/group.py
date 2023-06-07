@@ -24,8 +24,15 @@ class Group:
 
     @classmethod
     async def create_async(
-        cls, store: "Store", path: str, *, attributes: Optional[Dict[str, Any]] = None
+        cls,
+        store: "Store",
+        path: str,
+        *,
+        attributes: Optional[Dict[str, Any]] = None,
+        exists_ok: bool = False,
     ) -> "Group":
+        if not exists_ok:
+            assert not await store.exists_async(f"{path}/{ZARR_JSON}")
         group = cls(
             metadata=GroupMetadata(attributes=attributes or {}),
             store=store,
@@ -36,9 +43,16 @@ class Group:
 
     @classmethod
     def create(
-        cls, store: "Store", path: str, *, attributes: Optional[Dict[str, Any]] = None
+        cls,
+        store: "Store",
+        path: str,
+        *,
+        attributes: Optional[Dict[str, Any]] = None,
+        exists_ok: bool = False,
     ) -> "Group":
-        return sync(cls.create_async(store, path, attributes=attributes))
+        return sync(
+            cls.create_async(store, path, attributes=attributes, exists_ok=exists_ok)
+        )
 
     @classmethod
     async def open_async(cls, store: "Store", path: str) -> "Group":
@@ -59,15 +73,27 @@ class Group:
         )
         return group
 
-    @staticmethod
-    async def open_or_array(store: Store, path: str) -> Union[Array, "Group"]:
+    @classmethod
+    async def open_or_array(
+        cls,
+        store: Store,
+        path: str,
+        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+    ) -> Union[Array, "Group"]:
         zarr_json_bytes = await store.get_async(f"{path}/{ZARR_JSON}")
-        assert zarr_json_bytes is not None
+        if zarr_json_bytes is None:
+            raise KeyError
         zarr_json = json.loads(zarr_json_bytes)
         if zarr_json["node_type"] == "group":
-            return Group.from_json(store, path, zarr_json)
+            return cls.from_json(store, path, zarr_json)
         if zarr_json["node_type"] == "array":
-            return Array.from_json(store, path, zarr_json, ArrayRuntimeConfiguration())
+            return Array.from_json(
+                store,
+                path,
+                zarr_json,
+                runtime_configuration=runtime_configuration
+                or ArrayRuntimeConfiguration(),
+            )
         raise KeyError
 
     async def _save_metadata(self) -> None:
@@ -85,14 +111,14 @@ class Group:
 
     async def get_async(self, path: str) -> Union[Array, "Group"]:
         path = self._dereference_path(path)
-        return await Group.open_or_array(self.store, path)
+        return await self.__class__.open_or_array(self.store, path)
 
     def __getitem__(self, path: str) -> Union[Array, "Group"]:
         return sync(self.get_async(path))
 
     async def create_group_async(self, path: str, **kwargs) -> "Group":
         path = self._dereference_path(path)
-        return await Group.create_async(self.store, path, **kwargs)
+        return await self.__class__.create_async(self.store, path, **kwargs)
 
     def create_group(self, path: str, **kwargs) -> "Group":
         return sync(self.create_group_async(path))
@@ -101,7 +127,7 @@ class Group:
         path = self._dereference_path(path)
         return await Array.create_async(self.store, path, **kwargs)
 
-    def create_array(self, path: str, **kwargs) -> "Array":
+    def create_array(self, path: str, **kwargs) -> Array:
         return sync(self.create_array_async(path, **kwargs))
 
     def __repr__(self):

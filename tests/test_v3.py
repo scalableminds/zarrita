@@ -1,4 +1,4 @@
-import json
+from pathlib import Path
 from shutil import rmtree
 
 import numpy as np
@@ -7,14 +7,15 @@ import webknossos as wk
 import zarr
 from pytest import fixture
 
-from zarrita import *
+from zarrita import Array, Group, LocalStore, Store, codecs, runtime_configuration
 from zarrita.indexing import morton_order_iter
 
 
 @fixture
-def store() -> zarrita.Store:
-    rmtree("testdata", ignore_errors=True)
-    return zarrita.FileSystemStore("file://./testdata")
+def store() -> Store:
+    path = Path("testdata")
+    rmtree(path, ignore_errors=True)
+    return LocalStore(path)
 
 
 def test_sharding(store):
@@ -25,7 +26,7 @@ def test_sharding(store):
         .read()[0][:128, :128, :128]
     )
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "l4_sample/color/1",
         shape=data.shape,
@@ -33,11 +34,11 @@ def test_sharding(store):
         dtype=data.dtype,
         fill_value=0,
         codecs=[
-            zarrita.codecs.sharding_codec(
+            codecs.sharding_codec(
                 (32, 32, 32),
                 [
-                    zarrita.codecs.transpose_codec("F"),
-                    zarrita.codecs.blosc_codec("lz4"),
+                    codecs.transpose_codec("F"),
+                    codecs.blosc_codec("lz4"),
                 ],
             )
         ],
@@ -58,7 +59,7 @@ def test_sharding_partial(store):
         .read()[0][:128, :128, :128]
     )
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "l4_sample/color/1",
         shape=tuple(a + 10 for a in data.shape),
@@ -66,11 +67,11 @@ def test_sharding_partial(store):
         dtype=data.dtype,
         fill_value=0,
         codecs=[
-            zarrita.codecs.sharding_codec(
+            codecs.sharding_codec(
                 (32, 32, 32),
                 [
-                    zarrita.codecs.transpose_codec("F"),
-                    zarrita.codecs.blosc_codec("lz4"),
+                    codecs.transpose_codec("F"),
+                    codecs.blosc_codec("lz4"),
                 ],
             )
         ],
@@ -89,24 +90,24 @@ def test_sharding_partial(store):
 def test_order_F(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="F")
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "order_F",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[zarrita.codecs.transpose_codec("F")],
-        runtime_configuration=zarrita.runtime_configuration(order="F"),
+        codecs=[codecs.transpose_codec("F")],
+        runtime_configuration=runtime_configuration(order="F"),
     )
 
     a[:, :] = data
     read_data = a[:, :]
 
-    a = zarrita.Array.open(
+    a = Array.open(
         store,
         "order_F",
-        runtime_configuration=zarrita.runtime_configuration(order="F"),
+        runtime_configuration=runtime_configuration(order="F"),
     )
     assert np.array_equal(data, read_data)
     assert read_data.flags["F_CONTIGUOUS"]
@@ -116,14 +117,14 @@ def test_order_F(store):
 def test_order_C(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="C")
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "order_C",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[zarrita.codecs.transpose_codec("C")],
+        codecs=[codecs.transpose_codec("C")],
     )
 
     a[:, :] = data
@@ -136,7 +137,7 @@ def test_order_C(store):
 def test_order_implicitC(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="F")
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "order_implicitC",
         shape=data.shape,
@@ -153,7 +154,7 @@ def test_order_implicitC(store):
 
 
 def test_open(store):
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "open",
         shape=(16, 16),
@@ -161,12 +162,12 @@ def test_open(store):
         dtype="int32",
         fill_value=0,
     )
-    b = zarrita.Array.open(store, "open")
+    b = Array.open(store, "open")
     assert a.metadata == b.metadata
 
 
 def test_open_sharding(store):
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "open_sharding",
         shape=(16, 16),
@@ -174,20 +175,20 @@ def test_open_sharding(store):
         dtype="int32",
         fill_value=0,
         codecs=[
-            zarrita.codecs.sharding_codec(
+            codecs.sharding_codec(
                 (8, 8),
-                [zarrita.codecs.transpose_codec("F"), zarrita.codecs.blosc_codec()],
+                [codecs.transpose_codec("F"), codecs.blosc_codec()],
             )
         ],
     )
-    b = zarrita.Array.open(store, "open_sharding")
+    b = Array.open(store, "open_sharding")
     assert a.metadata == b.metadata
 
 
 def test_simple(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "simple",
         shape=data.shape,
@@ -235,7 +236,7 @@ def test_morton(store):
 def test_group(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    g = zarrita.Group.create(store, "group")
+    g = Group.create(store, "group")
     g.create_array(
         "array",
         shape=data.shape,
@@ -245,14 +246,14 @@ def test_group(store):
     )
     g.create_group("group2")
 
-    assert isinstance(g["array"], zarrita.Array)
-    assert isinstance(g["group2"], zarrita.Group)
+    assert isinstance(g["array"], Array)
+    assert isinstance(g["group2"], Group)
 
 
 def test_write_partial_chunks(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "write_partial_chunks",
         shape=data.shape,
@@ -267,7 +268,7 @@ def test_write_partial_chunks(store):
 def test_write_full_chunks(store):
     data = np.arange(0, 16 * 16, dtype="uint16").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "write_full_chunks",
         shape=(16, 16),
@@ -278,9 +279,9 @@ def test_write_full_chunks(store):
     a[0:16, 0:16] = data
     assert np.array_equal(a[0:16, 0:16], data)
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
-        "write_full_chunks",
+        "write_full_chunks2",
         shape=(20, 20),
         chunk_shape=(20, 20),
         dtype=data.dtype,
@@ -292,7 +293,7 @@ def test_write_full_chunks(store):
 def test_write_partial_sharded_chunks(store):
     data = np.arange(0, 16 * 16, dtype="uint16").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "write_partial_sharded_chunks",
         shape=(40, 40),
@@ -300,9 +301,7 @@ def test_write_partial_sharded_chunks(store):
         dtype=data.dtype,
         fill_value=1,
         codecs=[
-            zarrita.codecs.sharding_codec(
-                chunk_shape=(10, 10), codecs=[zarrita.codecs.blosc_codec()]
-            )
+            codecs.sharding_codec(chunk_shape=(10, 10), codecs=[codecs.blosc_codec()])
         ],
     )
     a[0:16, 0:16] = data
@@ -313,7 +312,7 @@ def test_write_partial_sharded_chunks(store):
 async def test_delete_empty_chunks(store):
     data = np.ones((16, 16))
 
-    a = await zarrita.Array.create_async(
+    a = await Array.create_async(
         store,
         "delete_empty_chunks",
         shape=data.shape,
@@ -324,19 +323,19 @@ async def test_delete_empty_chunks(store):
     await a.async_[:16, :16].set(np.zeros((16, 16)))
     await a.async_[:16, :16].set(data)
     assert np.array_equal(await a.async_[:16, :16].get(), data)
-    assert await store.get_async("delete_empty_chunks/c0/0") == None
+    assert await store.get_async("delete_empty_chunks/c0/0") is None
 
 
 @pytest.mark.asyncio
 async def test_delete_empty_sharded_chunks(store):
-    a = await zarrita.Array.create_async(
+    a = await Array.create_async(
         store,
         "delete_empty_sharded_chunks",
         shape=(16, 16),
         chunk_shape=(8, 16),
         dtype="uint16",
         fill_value=1,
-        codecs=[zarrita.codecs.sharding_codec(chunk_shape=(8, 8))],
+        codecs=[codecs.sharding_codec(chunk_shape=(8, 8))],
     )
     await a.async_[:, :].set(np.zeros((16, 16)))
     await a.async_[8:, :].set(np.ones((8, 16)))
@@ -349,7 +348,7 @@ async def test_delete_empty_sharded_chunks(store):
     data = np.ones((16, 16), dtype="uint16")
     data[:8, :8] = 0
     assert np.array_equal(data, await a.async_[:, :].get())
-    assert await store.get_async("delete_empty_sharded_chunks/c/1/0") == None
+    assert await store.get_async("delete_empty_sharded_chunks/c/1/0") is None
     assert (
         len(await store.get_async("delete_empty_sharded_chunks/c/0/0"))
         == 16 * 2 + 8 * 8 * 2 + 4
@@ -360,7 +359,7 @@ async def test_delete_empty_sharded_chunks(store):
 async def test_zarr_compat(store):
     data = np.zeros((16, 18), dtype="uint16")
 
-    a = await zarrita.Array.create_async(
+    a = await Array.create_async(
         store,
         "zarr_compat3",
         shape=data.shape,
@@ -402,7 +401,7 @@ async def test_zarr_compat(store):
 async def test_zarr_compat_F(store):
     data = np.zeros((16, 18), dtype="uint16", order="F")
 
-    a = await zarrita.Array.create_async(
+    a = await Array.create_async(
         store,
         "zarr_compatF3",
         shape=data.shape,
@@ -410,7 +409,7 @@ async def test_zarr_compat_F(store):
         dtype=data.dtype,
         chunk_key_encoding=("v2", "."),
         fill_value=1,
-        codecs=[zarrita.codecs.transpose_codec("F")],
+        codecs=[codecs.transpose_codec("F")],
     )
 
     z2 = zarr.create(
@@ -445,7 +444,7 @@ async def test_zarr_compat_F(store):
 def test_dimension_names(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    Array.create(
         store,
         "dimension_names",
         shape=data.shape,
@@ -455,34 +454,34 @@ def test_dimension_names(store):
         dimension_names=("x", "y"),
     )
 
-    assert zarrita.Array.open(store, "dimension_names").metadata.dimension_names == (
+    assert Array.open(store, "dimension_names").metadata.dimension_names == (
         "x",
         "y",
     )
 
-    a = zarrita.Array.create(
+    Array.create(
         store,
-        "dimension_names",
+        "dimension_names2",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
     )
 
-    assert zarrita.Array.open(store, "dimension_names").metadata.dimension_names == None
+    assert Array.open(store, "dimension_names2").metadata.dimension_names is None
 
 
 def test_gzip(store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "gzip",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[zarrita.codecs.gzip_codec()],
+        codecs=[codecs.gzip_codec()],
     )
 
     a[:, :] = data
@@ -493,14 +492,14 @@ def test_gzip(store):
 def test_endian(store, endian):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "endian",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[zarrita.codecs.endian_codec(endian)],
+        codecs=[codecs.endian_codec(endian)],
     )
 
     a[:, :] = data
@@ -512,7 +511,7 @@ def test_endian(store, endian):
 def test_endian_write(store, dtype_endian):
     data = np.arange(0, 256, dtype=">u2").reshape((16, 16))
 
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         "endian",
         shape=data.shape,
@@ -528,7 +527,7 @@ def test_endian_write(store, dtype_endian):
 
 def test_invalid_metadata(store):
     with pytest.raises(AssertionError):
-        a = zarrita.Array.create(
+        Array.create(
             store,
             "invalid",
             shape=(16, 16, 16),
@@ -538,7 +537,7 @@ def test_invalid_metadata(store):
         )
 
     with pytest.raises(AssertionError):
-        a = zarrita.Array.create(
+        Array.create(
             store,
             "invalid",
             shape=(16, 16),
@@ -546,13 +545,13 @@ def test_invalid_metadata(store):
             dtype=np.dtype("uint8"),
             fill_value=0,
             codecs=[
-                zarrita.codecs.endian_codec("big"),
-                zarrita.codecs.transpose_codec("F"),
+                codecs.endian_codec("big"),
+                codecs.transpose_codec("F"),
             ],
         )
 
     with pytest.raises(AssertionError):
-        a = zarrita.Array.create(
+        Array.create(
             store,
             "invalid",
             shape=(16, 16),
@@ -560,11 +559,11 @@ def test_invalid_metadata(store):
             dtype=np.dtype("uint8"),
             fill_value=0,
             codecs=[
-                zarrita.codecs.sharding_codec(chunk_shape=(8,)),
+                codecs.sharding_codec(chunk_shape=(8,)),
             ],
         )
     with pytest.raises(AssertionError):
-        a = zarrita.Array.create(
+        Array.create(
             store,
             "invalid",
             shape=(16, 16),
@@ -572,12 +571,12 @@ def test_invalid_metadata(store):
             dtype=np.dtype("uint8"),
             fill_value=0,
             codecs=[
-                zarrita.codecs.sharding_codec(chunk_shape=(8, 7)),
+                codecs.sharding_codec(chunk_shape=(8, 7)),
             ],
         )
 
     with pytest.warns(UserWarning):
-        a = zarrita.Array.create(
+        Array.create(
             store,
             "invalid",
             shape=(16, 16),
@@ -585,28 +584,61 @@ def test_invalid_metadata(store):
             dtype=np.dtype("uint8"),
             fill_value=0,
             codecs=[
-                zarrita.codecs.sharding_codec(chunk_shape=(8, 8)),
-                zarrita.codecs.gzip_codec(),
+                codecs.sharding_codec(chunk_shape=(8, 8)),
+                codecs.gzip_codec(),
             ],
         )
 
 
-async def check_zarr2_files(store, folder_a, folder_b):
-    assert json.loads(await store.get_async(f"{folder_a}/.zarray")) == json.loads(
-        await store.get_async(f"{folder_b}/.zarray")
+@pytest.mark.asyncio
+async def test_reshape(store):
+    data = np.zeros((16, 18), dtype="uint16")
+
+    a = await Array.create_async(
+        store,
+        "reshape",
+        shape=data.shape,
+        chunk_shape=(10, 10),
+        dtype=data.dtype,
+        chunk_key_encoding=("v2", "."),
+        fill_value=1,
     )
-    # assert json.loads(await store.get_async(f"{folder_a}/.zattrs")) == json.loads(
-    #     await store.get_async(f"{folder_b}/.zattrs")
-    # )
-    assert await store.get_async(f"{folder_a}/0.0") == await store.get_async(
-        f"{folder_b}/0.0"
+
+    await a.async_[:16, :18].set(data)
+    assert await store.get_async("reshape/0.0") is not None
+    assert await store.get_async("reshape/0.1") is not None
+    assert await store.get_async("reshape/1.0") is not None
+    assert await store.get_async("reshape/1.1") is not None
+
+    a = await a.reshape_async((10, 12))
+    assert a.metadata.shape == (10, 12)
+    assert await store.get_async("reshape/0.0") is not None
+    assert await store.get_async("reshape/0.1") is not None
+    assert await store.get_async("reshape/1.0") is None
+    assert await store.get_async("reshape/1.1") is None
+
+
+def test_exists_ok(store):
+    Array.create(
+        store,
+        "exists_ok",
+        shape=(16, 16),
+        chunk_shape=(16, 16),
+        dtype=np.dtype("uint8"),
     )
-    assert await store.get_async(f"{folder_a}/0.1") == await store.get_async(
-        f"{folder_b}/0.1"
-    )
-    assert await store.get_async(f"{folder_a}/1.0") == await store.get_async(
-        f"{folder_b}/1.0"
-    )
-    assert await store.get_async(f"{folder_a}/1.1") == await store.get_async(
-        f"{folder_b}/1.1"
+    with pytest.raises(AssertionError):
+        Array.create(
+            store,
+            "exists_ok",
+            shape=(16, 16),
+            chunk_shape=(16, 16),
+            dtype=np.dtype("uint8"),
+        )
+    Array.create(
+        store,
+        "exists_ok",
+        shape=(16, 16),
+        chunk_shape=(16, 16),
+        dtype=np.dtype("uint8"),
+        exists_ok=True,
     )

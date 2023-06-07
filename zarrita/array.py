@@ -3,12 +3,14 @@ import json
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from warnings import warn
 
+import attr
 import numpy as np
 from attr import asdict, frozen
 
+from zarrita.array_v2 import ArrayV2
 from zarrita.codecs import Codec, CodecMetadata
 from zarrita.common import ZARR_JSON, ChunkCoords, Selection, SliceSelection, make_cattr
-from zarrita.indexing import BasicIndexer, is_total_slice
+from zarrita.indexing import BasicIndexer, all_chunk_coords, is_total_slice
 from zarrita.metadata import (
     ArrayMetadata,
     CoreArrayMetadata,
@@ -61,6 +63,12 @@ class _AsyncArraySelectionProxy:
         return await self.array.set_async(self.selection, value)
 
 
+def _json_convert(o):
+    if isinstance(o, DataType):
+        return o.name
+    raise TypeError
+
+
 @frozen
 class Array:
     metadata: ArrayMetadata
@@ -87,7 +95,11 @@ class Array:
         dimension_names: Optional[Iterable[str]] = None,
         attributes: Optional[Dict[str, Any]] = None,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        exists_ok: bool = False,
     ) -> "Array":
+        if not exists_ok:
+            assert not await store.exists_async(f"{path}/{ZARR_JSON}")
+
         data_type = (
             DataType[dtype]
             if isinstance(dtype, str)
@@ -124,11 +136,10 @@ class Array:
             metadata=metadata,
             store=store,
             path=path,
-            runtime_configuration=runtime_configuration
-            if runtime_configuration
-            else ArrayRuntimeConfiguration(),
+            runtime_configuration=runtime_configuration or ArrayRuntimeConfiguration(),
             codecs=Codec.codecs_from_metadata(metadata.codecs),
         )
+
         await array._save_metadata()
         return array
 
@@ -150,6 +161,7 @@ class Array:
         dimension_names: Optional[Iterable[str]] = None,
         attributes: Optional[Dict[str, Any]] = None,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        exists_ok: bool = False,
     ) -> "Array":
         return sync(
             cls.create_async(
@@ -164,6 +176,7 @@ class Array:
                 dimension_names=dimension_names,
                 attributes=attributes,
                 runtime_configuration=runtime_configuration,
+                exists_ok=exists_ok,
             )
         )
 
@@ -180,9 +193,7 @@ class Array:
             store,
             path,
             json.loads(zarr_json_bytes),
-            runtime_configuration=runtime_configuration
-            if runtime_configuration
-            else ArrayRuntimeConfiguration(),
+            runtime_configuration=runtime_configuration or ArrayRuntimeConfiguration(),
         )
 
     @classmethod
@@ -215,17 +226,39 @@ class Array:
         out._validate_metadata()
         return out
 
-    async def _save_metadata(self) -> None:
-        def convert(o):
-            if isinstance(o, DataType):
-                return o.name
-            raise TypeError
+    @classmethod
+    async def open_auto_async(
+        cls,
+        store: "Store",
+        path: str,
+        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+    ) -> Union["Array", ArrayV2]:
+        v3_metadata_bytes = await store.get_async(f"{path}/{ZARR_JSON}")
+        if v3_metadata_bytes is not None:
+            return cls.from_json(
+                store,
+                path,
+                json.loads(v3_metadata_bytes),
+                runtime_configuration=runtime_configuration
+                or ArrayRuntimeConfiguration(),
+            )
+        return await ArrayV2.open_async(store, path)
 
+    @classmethod
+    async def open_auto(
+        cls,
+        store: "Store",
+        path: str,
+        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+    ) -> Union["Array", ArrayV2]:
+        return sync(cls.open_auto_async(store, path, runtime_configuration))
+
+    async def _save_metadata(self) -> None:
         self._validate_metadata()
 
         await self.store.set_async(
             f"{self.path}/{ZARR_JSON}",
-            json.dumps(asdict(self.metadata), default=convert).encode(),
+            json.dumps(asdict(self.metadata), default=_json_convert).encode(),
         )
 
     def _validate_metadata(self) -> None:
@@ -493,6 +526,35 @@ class Array:
             )
 
         return encoded_chunk_value
+
+    async def reshape_async(self, new_shape: ChunkCoords) -> "Array":
+        assert len(new_shape) == len(self.metadata.shape)
+        new_metadata = attr.evolve(self.metadata, shape=new_shape)
+
+        # Remove all chunks outside of the new shape
+        chunk_shape = self.metadata.chunk_grid.configuration.chunk_shape
+        chunk_key_encoding = self.metadata.chunk_key_encoding
+        old_chunk_coords = set(all_chunk_coords(self.metadata.shape, chunk_shape))
+        new_chunk_coords = set(all_chunk_coords(new_shape, chunk_shape))
+
+        await asyncio.gather(
+            *[
+                self.store.delete_async(
+                    f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
+                )
+                for chunk_coords in old_chunk_coords.difference(new_chunk_coords)
+            ]
+        )
+
+        # Write new metadata
+        await self.store.set_async(
+            f"{self.path}/{ZARR_JSON}",
+            json.dumps(asdict(new_metadata), default=_json_convert).encode(),
+        )
+        return attr.evolve(self, metadata=new_metadata)
+
+    def reshape(self, new_shape: ChunkCoords) -> "Array":
+        return sync(self.reshape_async(new_shape))
 
     def __repr__(self):
         path = self.path

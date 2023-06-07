@@ -12,7 +12,8 @@ import zarr
 from numcodecs import Blosc
 from pytest import fixture
 
-from zarrita import *
+from zarrita import Array, LocalStore, Store, codecs
+from zarrita.array import runtime_configuration
 
 TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
 
@@ -42,8 +43,8 @@ def folder() -> Path:
 
 
 @fixture
-def store(folder: Path) -> zarrita.Store:
-    return zarrita.FileSystemStore(f"file://{folder}")
+def store(folder: Path) -> Store:
+    return LocalStore(folder)
 
 
 def folder_disk_usage(folder: Path) -> int:
@@ -55,11 +56,9 @@ def folder_inodes(folder: Path) -> int:
 
 
 @pytest.mark.parametrize("layer_name, testdata", TESTDATA)
-def test_sharding(
-    store: zarrita.FileSystemStore, layer_name: str, testdata: np.ndarray
-):
+def test_sharding(store: Store, layer_name: str, testdata: np.ndarray):
     print("")
-    a = zarrita.Array.create(
+    a = Array.create(
         store,
         f"l4_sample_zarrita_sharding/{layer_name}",
         shape=testdata.shape,
@@ -67,14 +66,15 @@ def test_sharding(
         dtype=testdata.dtype,
         fill_value=0,
         codecs=[
-            zarrita.codecs.sharding_codec(
+            codecs.sharding_codec(
                 (32, 32, 32),
                 [
-                    zarrita.codecs.transpose_codec("F"),
-                    zarrita.codecs.blosc_codec(),
+                    codecs.transpose_codec("F"),
+                    codecs.blosc_codec(),
                 ],
             )
         ],
+        runtime_configuration=runtime_configuration("F"),
     )
 
     start = default_timer()
@@ -89,7 +89,8 @@ def test_sharding(
 
     path = Path("testdata") / "l4_sample_zarrita_sharding" / layer_name
     print(
-        f"  zarrita STORAGE {folder_disk_usage(path)/1000000:,.2f} MB - {folder_inodes(path)} inodes"
+        f"  zarrita STORAGE {folder_disk_usage(path)/1000000:,.2f} MB "
+        + f"- {folder_inodes(path)} inodes"
     )
 
     assert np.array_equal(readback_data, testdata)
@@ -120,7 +121,8 @@ def test_wkw(folder: Path, layer_name: str, testdata: np.ndarray, codec: str):
         print(f"  wkw READ {layer_name} - {default_timer() - start:.2f}s")
 
         print(
-            f"  wkw STORAGE {folder_disk_usage(path)/1000000:,.2f} MB - {folder_inodes(path)} inodes"
+            f"  wkw STORAGE {folder_disk_usage(path)/1000000:,.2f} MB - "
+            + f"{folder_inodes(path)} inodes"
         )
 
         assert np.array_equal(readback_data, testdata)
@@ -150,7 +152,8 @@ def test_zarr(folder: Path, layer_name: str, testdata: np.ndarray):
     print(f"  zarr READ {layer_name} - {default_timer() - start:.2f}s")
 
     print(
-        f"  zarr STORAGE {folder_disk_usage(path)/1000000:,.2f} MB - {folder_inodes(path)} inodes"
+        f"  zarr STORAGE {folder_disk_usage(path)/1000000:,.2f} MB - "
+        + f"{folder_inodes(path)} inodes"
     )
 
     assert np.array_equal(readback_data, testdata)

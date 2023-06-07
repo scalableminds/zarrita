@@ -9,6 +9,9 @@ if TYPE_CHECKING:
 
 
 ZARR_JSON = "zarr.json"
+ZARRAY_JSON = ".zarray"
+ZGROUP_JSON = ".zgroup"
+ZATTRS_JSON = ".zattrs"
 
 BytesLike = Union[bytes, bytearray, memoryview]
 ChunkCoords = Tuple[int, ...]
