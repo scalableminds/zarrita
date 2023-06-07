@@ -15,6 +15,7 @@ from zarrita.common import (
     Selection,
     SliceSelection,
     make_cattr,
+    to_thread,
 )
 from zarrita.indexing import BasicIndexer, is_total_slice
 from zarrita.metadata import ArrayV2Metadata
@@ -269,7 +270,7 @@ class ArrayV2:
         if self.metadata.compressor is not None:
             compressor = numcodecs.get_codec(self.metadata.compressor)
             chunk_array = ensure_ndarray(
-                await asyncio.to_thread(compressor.decode, chunk_bytes)
+                await to_thread(compressor.decode, chunk_bytes)
             )
         else:
             chunk_array = ensure_ndarray(chunk_bytes)
@@ -282,7 +283,7 @@ class ArrayV2:
         if self.metadata.filters is not None:
             for filter_metadata in self.metadata.filters[::-1]:
                 filter = numcodecs.get_codec(filter_metadata)
-                chunk_array = await asyncio.to_thread(filter.decode, chunk_array)
+                chunk_array = await to_thread(filter.decode, chunk_array)
 
         # ensure correct chunk shape
         if chunk_array.shape != self.metadata.chunks:
@@ -395,7 +396,7 @@ class ArrayV2:
         if self.metadata.filters is not None:
             for filter_metadata in self.metadata.filters:
                 filter = numcodecs.get_codec(filter_metadata)
-                chunk_array = await asyncio.to_thread(filter.encode, chunk_array)
+                chunk_array = await to_thread(filter.encode, chunk_array)
 
         if self.metadata.compressor is not None:
             compressor = numcodecs.get_codec(self.metadata.compressor)
@@ -405,7 +406,7 @@ class ArrayV2:
             ):
                 chunk_array = chunk_array.copy(order="A")
             encoded_chunk_bytes = ensure_bytes(
-                await asyncio.to_thread(compressor.encode, chunk_array)
+                await to_thread(compressor.encode, chunk_array)
             )
         else:
             encoded_chunk_bytes = ensure_bytes(chunk_array)

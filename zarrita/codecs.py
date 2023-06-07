@@ -1,4 +1,3 @@
-import asyncio
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Awaitable, Callable, List, Literal, Tuple, Union
 
@@ -7,7 +6,7 @@ from attr import asdict, frozen
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
 
-from zarrita.common import BytesLike
+from zarrita.common import BytesLike, to_thread
 from zarrita.metadata import (
     BloscCodecConfigurationMetadata,
     BloscCodecMetadata,
@@ -243,7 +242,7 @@ class BloscCodec(BytesBytesCodec):
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
-        return await asyncio.to_thread(
+        return await to_thread(
             Blosc.from_config(asdict(self.configuration)).decode, chunk_bytes
         )
 
@@ -253,7 +252,7 @@ class BloscCodec(BytesBytesCodec):
         array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
         chunk_array = np.frombuffer(chunk_bytes, dtype=array_metadata.dtype)
-        return await asyncio.to_thread(
+        return await to_thread(
             Blosc.from_config(asdict(self.configuration)).encode, chunk_array
         )
 
@@ -363,18 +362,14 @@ class GzipCodec(BytesBytesCodec):
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
-        return await asyncio.to_thread(
-            GZip(self.configuration.level).decode, chunk_bytes
-        )
+        return await to_thread(GZip(self.configuration.level).decode, chunk_bytes)
 
     async def inner_encode(
         self,
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
-        return await asyncio.to_thread(
-            GZip(self.configuration.level).encode, chunk_bytes
-        )
+        return await to_thread(GZip(self.configuration.level).encode, chunk_bytes)
 
 
 def blosc_codec(

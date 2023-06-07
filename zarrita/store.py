@@ -5,7 +5,7 @@ from typing import List, Optional, Tuple, Union
 
 import fsspec
 
-from zarrita.common import BytesLike
+from zarrita.common import BytesLike, to_thread
 
 
 class Store:
@@ -96,9 +96,9 @@ class LocalStore(Store):
 
         try:
             value = await (
-                asyncio.to_thread(self._cat_file, path, byte_range[0], byte_range[1])
+                to_thread(self._cat_file, path, byte_range[0], byte_range[1])
                 if byte_range is not None
-                else asyncio.to_thread(self._cat_file, path)
+                else to_thread(self._cat_file, path)
             )
         except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
             return None
@@ -112,17 +112,17 @@ class LocalStore(Store):
         path = self.root / key
 
         if byte_range is not None:
-            await asyncio.to_thread(self._put_file, path, value, byte_range[0])
+            await to_thread(self._put_file, path, value, byte_range[0])
         else:
-            await asyncio.to_thread(self._put_file, path, value)
+            await to_thread(self._put_file, path, value)
 
     async def delete_async(self, key: str) -> None:
         path = self.root / key
-        await asyncio.to_thread(path.unlink, True)
+        await to_thread(path.unlink, True)
 
     async def exists_async(self, key: str) -> bool:
         path = self.root / key
-        return await asyncio.to_thread(path.exists)
+        return await to_thread(path.exists)
 
 
 class RemoteStore(Store):
