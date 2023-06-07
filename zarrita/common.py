@@ -1,5 +1,18 @@
+import asyncio
 import functools
-from typing import TYPE_CHECKING, Any, Dict, Literal, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 import numpy as np
 from cattr import Converter
@@ -112,3 +125,25 @@ def make_cattr():
 
 def product(tup: ChunkCoords) -> int:
     return functools.reduce(lambda x, y: x * y, tup, 1)
+
+
+T = TypeVar("T", bound=Tuple)
+V = TypeVar("V")
+
+
+async def concurrent_map(
+    items: List[T], func: Callable[..., Awaitable[V]], limit: Optional[int] = None
+) -> List[V]:
+    if limit is None:
+        return await asyncio.gather(*[func(*item) for item in items])
+
+    else:
+        sem = asyncio.Semaphore(limit)
+
+        async def run(item):
+            async with sem:
+                return await func(*item)
+
+        return await asyncio.gather(
+            *[asyncio.ensure_future(run(item)) for item in items]
+        )

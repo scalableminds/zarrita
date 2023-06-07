@@ -1,4 +1,3 @@
-import asyncio
 from typing import Iterator, List, Mapping, NamedTuple, Optional, Set, Tuple
 
 import numpy as np
@@ -6,7 +5,13 @@ from attrs import frozen
 from crc32c import crc32c
 
 from zarrita.codecs import ArrayBytesCodec, Codec
-from zarrita.common import BytesLike, ChunkCoords, SliceSelection, product
+from zarrita.common import (
+    BytesLike,
+    ChunkCoords,
+    SliceSelection,
+    concurrent_map,
+    product,
+)
 from zarrita.indexing import (
     BasicIndexer,
     c_order_iter,
@@ -222,7 +227,9 @@ class ShardingCodec(ArrayBytesCodec):
 
         # setup output array
         out = np.zeros(
-            shard_shape, dtype=array_metadata.dtype, order=array_metadata.order
+            shard_shape,
+            dtype=array_metadata.dtype,
+            order=array_metadata.runtime_configuration.order,
         )
         shard_dict = await self._load_full_shard(value_handle, chunks_per_shard)
 
@@ -230,9 +237,9 @@ class ShardingCodec(ArrayBytesCodec):
             return NoneValueHandle()
 
         # decoding chunks and writing them into the output buffer
-        await asyncio.gather(
-            *[
-                self._read_chunk(
+        await concurrent_map(
+            [
+                (
                     shard_dict,
                     chunk_coords,
                     chunk_selection,
@@ -241,7 +248,9 @@ class ShardingCodec(ArrayBytesCodec):
                     out,
                 )
                 for chunk_coords, chunk_selection, out_selection in indexer
-            ]
+            ],
+            self._read_chunk,
+            array_metadata.runtime_configuration.concurrency,
         )
 
         return ArrayValueHandle(out)
@@ -268,7 +277,9 @@ class ShardingCodec(ArrayBytesCodec):
 
         # setup output array
         out = np.zeros(
-            indexer.shape, dtype=array_metadata.dtype, order=array_metadata.order
+            indexer.shape,
+            dtype=array_metadata.dtype,
+            order=array_metadata.runtime_configuration.order,
         )
 
         indexed_chunks = list(indexer)
@@ -291,9 +302,9 @@ class ShardingCodec(ArrayBytesCodec):
                         shard_dict[chunk_coords] = chunk_bytes
 
         # decoding chunks and writing them into the output buffer
-        await asyncio.gather(
-            *[
-                self._read_chunk(
+        await concurrent_map(
+            [
+                (
                     shard_dict,
                     chunk_coords,
                     chunk_selection,
@@ -302,7 +313,9 @@ class ShardingCodec(ArrayBytesCodec):
                     out,
                 )
                 for chunk_coords, chunk_selection, out_selection in indexed_chunks
-            ]
+            ],
+            self._read_chunk,
+            array_metadata.runtime_configuration.concurrency,
         )
 
         return ArrayValueHandle(out)
@@ -342,7 +355,7 @@ class ShardingCodec(ArrayBytesCodec):
             chunk_shape=self.configuration.chunk_shape,
             data_type=array_metadata.data_type,
             fill_value=array_metadata.fill_value,
-            order=array_metadata.order,
+            runtime_configuration=array_metadata.runtime_configuration,
         )
 
         # applying codecs in revers e order
@@ -396,7 +409,9 @@ class ShardingCodec(ArrayBytesCodec):
             else:
                 # handling writing partial chunks
                 chunk_array = np.empty(
-                    chunk_shape, dtype=array_metadata.dtype, order=array_metadata.order
+                    chunk_shape,
+                    dtype=array_metadata.dtype,
+                    order=array_metadata.runtime_configuration.order,
                 )
                 chunk_array.fill(array_metadata.fill_value)
                 chunk_array[chunk_selection] = shard_array[out_selection]
@@ -410,11 +425,13 @@ class ShardingCodec(ArrayBytesCodec):
         # assembling and encoding chunks within the shard
         encoded_chunks: List[
             Tuple[ChunkCoords, Optional[BytesLike]]
-        ] = await asyncio.gather(
-            *[
-                _write_chunk(shard_array, chunk_coords, chunk_selection, out_selection)
+        ] = await concurrent_map(
+            [
+                (shard_array, chunk_coords, chunk_selection, out_selection)
                 for chunk_coords, chunk_selection, out_selection in indexer
-            ]
+            ],
+            _write_chunk,
+            array_metadata.runtime_configuration.concurrency,
         )
         shard_builder = _ShardBuilder.create_empty(chunks_per_shard)
         for chunk_coords, chunk_bytes in encoded_chunks:
@@ -469,12 +486,12 @@ class ShardingCodec(ArrayBytesCodec):
                     chunk_array = np.empty(
                         chunk_shape,
                         dtype=array_metadata.dtype,
-                        order=array_metadata.order,
+                        order=array_metadata.runtime_configuration.order,
                     )
                     chunk_array.fill(array_metadata.fill_value)
                 else:
                     chunk_array = tmp.copy(
-                        order=array_metadata.order
+                        order=array_metadata.runtime_configuration.order
                     )  # make a writable copy
                 chunk_array[chunk_selection] = shard_array[out_selection]
 
@@ -488,11 +505,13 @@ class ShardingCodec(ArrayBytesCodec):
 
         encoded_chunks: List[
             Tuple[ChunkCoords, Optional[BytesLike]]
-        ] = await asyncio.gather(
-            *[
-                _write_chunk(chunk_coords, chunk_selection, out_selection)
+        ] = await concurrent_map(
+            [
+                (chunk_coords, chunk_selection, out_selection)
                 for chunk_coords, chunk_selection, out_selection in indexer
-            ]
+            ],
+            _write_chunk,
+            array_metadata.runtime_configuration.concurrency,
         )
 
         for chunk_coords, chunk_bytes in encoded_chunks:
@@ -522,7 +541,7 @@ class ShardingCodec(ArrayBytesCodec):
             chunk_shape=self.configuration.chunk_shape,
             data_type=array_metadata.data_type,
             fill_value=array_metadata.fill_value,
-            order=array_metadata.order,
+            runtime_configuration=array_metadata.runtime_configuration,
         )
 
         encoded_chunk_value: ValueHandle = ArrayValueHandle(chunk)

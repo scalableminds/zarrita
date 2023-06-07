@@ -1,4 +1,3 @@
-import asyncio
 import json
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from warnings import warn
@@ -9,7 +8,14 @@ from attr import asdict, frozen
 
 from zarrita.array_v2 import ArrayV2
 from zarrita.codecs import Codec, CodecMetadata
-from zarrita.common import ZARR_JSON, ChunkCoords, Selection, SliceSelection, make_cattr
+from zarrita.common import (
+    ZARR_JSON,
+    ChunkCoords,
+    Selection,
+    SliceSelection,
+    concurrent_map,
+    make_cattr,
+)
 from zarrita.indexing import BasicIndexer, all_chunk_coords, is_total_slice
 from zarrita.metadata import (
     ArrayMetadata,
@@ -37,10 +43,13 @@ from zarrita.value_handle import (
 @frozen
 class ArrayRuntimeConfiguration:
     order: Literal["C", "F"] = "C"
+    concurrency: Optional[int] = None
 
 
-def runtime_configuration(order: Literal["C", "F"]) -> ArrayRuntimeConfiguration:
-    return ArrayRuntimeConfiguration(order=order)
+def runtime_configuration(
+    order: Literal["C", "F"], concurrency: Optional[int] = None
+) -> ArrayRuntimeConfiguration:
+    return ArrayRuntimeConfiguration(order=order, concurrency=concurrency)
 
 
 @frozen
@@ -322,7 +331,7 @@ class Array:
             chunk_shape=self.metadata.chunk_grid.configuration.chunk_shape,
             data_type=self.metadata.data_type,
             fill_value=self.metadata.fill_value,
-            order=self.runtime_configuration.order,
+            runtime_configuration=self.runtime_configuration,
         )
 
     @property
@@ -347,11 +356,13 @@ class Array:
         )
 
         # reading chunks and decoding them
-        await asyncio.gather(
-            *[
-                self._read_chunk(chunk_coords, chunk_selection, out_selection, out)
+        await concurrent_map(
+            [
+                (chunk_coords, chunk_selection, out_selection, out)
                 for chunk_coords, chunk_selection, out_selection in indexer
-            ]
+            ],
+            self._read_chunk,
+            self.runtime_configuration.concurrency,
         )
 
         if out.shape:
@@ -433,9 +444,9 @@ class Array:
                 value = value.astype(self.metadata.dtype, order="A")
 
         # merging with existing data and encoding chunks
-        await asyncio.gather(
-            *[
-                self._write_chunk(
+        await concurrent_map(
+            [
+                (
                     value,
                     chunk_shape,
                     chunk_coords,
@@ -443,7 +454,9 @@ class Array:
                     out_selection,
                 )
                 for chunk_coords, chunk_selection, out_selection in indexer
-            ]
+            ],
+            self._write_chunk,
+            self.runtime_configuration.concurrency,
         )
 
     async def _write_chunk(
@@ -537,13 +550,13 @@ class Array:
         old_chunk_coords = set(all_chunk_coords(self.metadata.shape, chunk_shape))
         new_chunk_coords = set(all_chunk_coords(new_shape, chunk_shape))
 
-        await asyncio.gather(
-            *[
-                self.store.delete_async(
-                    f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}"
-                )
+        await concurrent_map(
+            [
+                (f"{self.path}/{chunk_key_encoding.encode_chunk_key(chunk_coords)}",)
                 for chunk_coords in old_chunk_coords.difference(new_chunk_coords)
-            ]
+            ],
+            self.store.delete_async,
+            self.runtime_configuration.concurrency,
         )
 
         # Write new metadata

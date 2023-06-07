@@ -1,10 +1,13 @@
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from attr import field, frozen
 
 from zarrita.common import ChunkCoords
+
+if TYPE_CHECKING:
+    from zarrita.array import ArrayRuntimeConfiguration
 
 
 class DataType(Enum):
@@ -181,7 +184,7 @@ class CoreArrayMetadata:
     chunk_shape: ChunkCoords
     data_type: DataType
     fill_value: Any
-    order: Literal["C", "F"]
+    runtime_configuration: "ArrayRuntimeConfiguration"
 
     @property
     def dtype(self) -> np.dtype:
