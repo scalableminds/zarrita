@@ -8,7 +8,7 @@ Zarrita is an experimental implementation of [Zarr v3](https://zarr-specs.readth
 import zarrita
 import numpy as np
 
-store = zarrita.FileSystemStore('file://./testdata')
+store = zarrita.LocalStore('testdata') # or zarrita.RemoteStore('s3://bucket/test')
 ```
 
 ## Create an array
@@ -20,7 +20,7 @@ a = await zarrita.Array.create_async(
     shape=(6, 10),
     dtype='int32',
     chunk_shape=(2, 5),
-    codecs=[zarrita.codecs.gzip_codec(level=1)],
+    codecs=[zarrita.codecs.blosc_codec()],
     attributes={'question': 'life', 'answer': 42}
 )
 await a.async_[:, :].set(np.ones((6, 10), dtype='int32'))
@@ -46,7 +46,7 @@ a = await zarrita.Array.create_async(
     codecs=[
         zarrita.codecs.sharding_codec(
             chunk_shape=(8, 8),
-            codecs=[zarrita.codecs.gzip_codec(level=1)]
+            codecs=[zarrita.codecs.blosc_codec()]
         ),
     ],
 )
