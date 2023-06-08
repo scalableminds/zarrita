@@ -90,20 +90,19 @@ Licensed under MIT
 - [x] sharding partial decode
 - [x] variable renaming
 - [x] type indexing
-- [ ] attrs -> dataclasses
 - [x] value handle slices get and set
 - [x] codec classes
-- [x] perf vs zarr and wkw: write is ok, read is slow
-- [x] better async syntax
 - [x] metadata validation
 - [x] zarr v2
 - [x] open with v2/v3 auto-detect
 - [x] async gather in sharding
 - [x] async local store
-- [ ] morton order in indexing
 - [x] resize arrays
 - [x] check empty before create array
+- [ ] morton order in indexing
+- [ ] attrs -> dataclasses
+
+## Non-priority
 
 - Dask support
-- buffer protocol
-- less memory copies?
+- Buffer protocol
