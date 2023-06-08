@@ -114,7 +114,7 @@ ChunkKeyEncodingMetadata = Union[
 class BloscCodecConfigurationMetadata:
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
     clevel: int = 5
-    shuffle: Literal[0, 1, 2, -1] = 0
+    shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle"
     blocksize: int = 0
 
 
