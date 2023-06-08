@@ -407,7 +407,7 @@ class Array:
             return None
 
         # ensure correct dtype
-        if str(chunk_array.dtype) != self.metadata.data_type.name:
+        if chunk_array.dtype.name != self.metadata.data_type.name:
             chunk_array = chunk_array.view(self.metadata.dtype)
 
         # ensure correct chunk shape

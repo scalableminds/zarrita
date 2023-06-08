@@ -367,7 +367,7 @@ class ShardingCodec(ArrayBytesCodec):
             return None
 
         # ensure correct dtype
-        if str(chunk_array.dtype) != array_metadata.data_type.name:
+        if chunk_array.dtype.name != array_metadata.data_type.name:
             chunk_array = chunk_array.view(np.dtype(array_metadata.data_type.name))
 
         # ensure correct chunk shape
