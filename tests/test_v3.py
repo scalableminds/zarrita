@@ -87,51 +87,55 @@ def test_sharding_partial(store):
     assert np.array_equal(data, read_data)
 
 
-def test_order_F(store):
-    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="F")
+@pytest.mark.parametrize("input_order", ["F", "C"])
+@pytest.mark.parametrize("store_order", ["F", "C"])
+@pytest.mark.parametrize("runtime_order", ["F", "C"])
+@pytest.mark.asyncio
+async def test_order(store, input_order, store_order, runtime_order):
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
 
-    a = Array.create(
+    a = await Array.create_async(
         store,
-        "order_F",
+        "order",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[codecs.transpose_codec("F")],
-        runtime_configuration=runtime_configuration(order="F"),
+        chunk_key_encoding=("v2", "."),
+        codecs=[codecs.transpose_codec(store_order)],
     )
 
-    a[:, :] = data
-    read_data = a[:, :]
-
-    a = Array.open(
-        store,
-        "order_F",
-        runtime_configuration=runtime_configuration(order="F"),
-    )
+    await a.async_[:, :].set(data)
+    read_data = await a.async_[:, :].get()
     assert np.array_equal(data, read_data)
-    assert read_data.flags["F_CONTIGUOUS"]
-    assert not read_data.flags["C_CONTIGUOUS"]
 
-
-def test_order_C(store):
-    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="C")
-
-    a = Array.create(
+    a = await Array.open_async(
         store,
-        "order_C",
+        "order",
+        runtime_configuration=runtime_configuration(order=runtime_order),
+    )
+    read_data = await a.async_[:, :].get()
+    assert np.array_equal(data, read_data)
+
+    if runtime_order == "F":
+        assert read_data.flags["F_CONTIGUOUS"]
+        assert not read_data.flags["C_CONTIGUOUS"]
+    else:
+        assert not read_data.flags["F_CONTIGUOUS"]
+        assert read_data.flags["C_CONTIGUOUS"]
+
+    # Compare with zarr-python
+    z = zarr.create(
         shape=data.shape,
-        chunk_shape=(16, 16),
-        dtype=data.dtype,
-        fill_value=0,
-        codecs=[codecs.transpose_codec("C")],
+        chunks=(16, 16),
+        dtype="<u2",
+        order=store_order,
+        compressor=None,
+        fill_value=1,
+        store="testdata/order_zarr",
     )
-
-    a[:, :] = data
-    read_data = a[:, :]
-    assert np.array_equal(data, read_data)
-    assert read_data.flags["C_CONTIGUOUS"]
-    assert not read_data.flags["F_CONTIGUOUS"]
+    z[:, :] = data
+    assert await store.get_async("order/0.0") == await store.get_async("order_zarr/0.0")
 
 
 def test_order_implicitC(store):
@@ -489,40 +493,74 @@ def test_gzip(store):
 
 
 @pytest.mark.parametrize("endian", ["big", "little"])
-def test_endian(store, endian):
+@pytest.mark.asyncio
+async def test_endian(store, endian):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    a = Array.create(
+    a = await Array.create_async(
         store,
         "endian",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
+        chunk_key_encoding=("v2", "."),
         codecs=[codecs.endian_codec(endian)],
     )
 
-    a[:, :] = data
-    readback_data = a[:, :]
+    await a.async_[:, :].set(data)
+    readback_data = await a.async_[:, :].get()
     assert np.array_equal(data, readback_data)
 
+    # Compare with zarr-python
+    z = zarr.create(
+        shape=data.shape,
+        chunks=(16, 16),
+        dtype=">u2" if endian == "big" else "<u2",
+        compressor=None,
+        fill_value=1,
+        store="testdata/endian_zarr",
+    )
+    z[:, :] = data
+    assert await store.get_async("endian/0.0") == await store.get_async(
+        "endian_zarr/0.0"
+    )
 
-@pytest.mark.parametrize("dtype_endian", [">u2", "<u2"])
-def test_endian_write(store, dtype_endian):
-    data = np.arange(0, 256, dtype=">u2").reshape((16, 16))
 
-    a = Array.create(
+@pytest.mark.parametrize("dtype_input_endian", [">u2", "<u2"])
+@pytest.mark.parametrize("dtype_store_endian", ["big", "little"])
+@pytest.mark.asyncio
+async def test_endian_write(store, dtype_input_endian, dtype_store_endian):
+    data = np.arange(0, 256, dtype=dtype_input_endian).reshape((16, 16))
+
+    a = await Array.create_async(
         store,
         "endian",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype="uint16",
         fill_value=0,
+        chunk_key_encoding=("v2", "."),
+        codecs=[codecs.endian_codec(dtype_store_endian)],
     )
 
-    a[:, :] = data
-    readback_data = a[:, :]
+    await a.async_[:, :].set(data)
+    readback_data = await a.async_[:, :].get()
     assert np.array_equal(data, readback_data)
+
+    # Compare with zarr-python
+    z = zarr.create(
+        shape=data.shape,
+        chunks=(16, 16),
+        dtype=">u2" if dtype_store_endian == "big" else "<u2",
+        compressor=None,
+        fill_value=1,
+        store="testdata/endian_zarr",
+    )
+    z[:, :] = data
+    assert await store.get_async("endian/0.0") == await store.get_async(
+        "endian_zarr/0.0"
+    )
 
 
 def test_invalid_metadata(store):

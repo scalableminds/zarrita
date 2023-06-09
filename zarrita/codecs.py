@@ -42,7 +42,8 @@ async def _needs_array(
     chunk_array = await chunk_value_handle.toarray()
     if chunk_array is None:
         return NoneValueHandle()
-    chunk_array = chunk_array.view(dtype=array_metadata.dtype)
+    if chunk_array.dtype.name != array_metadata.dtype.name:
+        chunk_array = chunk_array.view(dtype=array_metadata.dtype)
     result = await f(chunk_array, array_metadata)
     if result is None:
         return NoneValueHandle()
@@ -299,9 +300,8 @@ class EndianCodec(ArrayBytesCodec):
     ) -> BytesLike:
         byteorder = self._get_byteorder(chunk_array)
         if self.configuration.endian != byteorder:
-            chunk_array = chunk_array.astype(
-                dtype=chunk_array.dtype.newbyteorder(byteorder)
-            )
+            new_dtype = chunk_array.dtype.newbyteorder(self.configuration.endian)
+            chunk_array = chunk_array.astype(new_dtype)
         return chunk_array.tobytes()
 
 

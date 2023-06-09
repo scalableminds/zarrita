@@ -440,7 +440,7 @@ class Array:
             if not hasattr(value, "shape"):
                 value = np.asarray(value, self.metadata.dtype)
             assert value.shape == sel_shape
-            if value.dtype != self.metadata.dtype:
+            if value.dtype.name != self.metadata.dtype.name:
                 value = value.astype(self.metadata.dtype, order="A")
 
         # merging with existing data and encoding chunks

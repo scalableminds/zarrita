@@ -20,11 +20,12 @@ def store() -> Store:
 
 async def do_test(store, data, zarrita_kwargs, zarr_kwargs):
     # setup
+    zarrita_dtype = zarrita_kwargs.pop("dtype", data.dtype)
     zarrita_array = await ArrayV2.create_async(
         store,
         "zarrita_v2",
         shape=data.shape,
-        dtype=data.dtype,
+        dtype=zarrita_dtype,
         chunks=(10, 10),
         **{
             **dict(dimension_separator=".", compressor=None, filters=None),
@@ -32,11 +33,12 @@ async def do_test(store, data, zarrita_kwargs, zarr_kwargs):
         },
     )
 
+    zarr_dtype = zarr_kwargs.pop("dtype", data.dtype)
     zarr_attrs = zarr_kwargs.pop("attributes", None)
     zarr_array = zarr.create(
         store="testdata/zarr_v2",
         shape=data.shape,
-        dtype=data.dtype,
+        dtype=zarr_dtype,
         chunks=(10, 10),
         **{
             **dict(
@@ -168,44 +170,49 @@ async def test_filters_and_compressors(store):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("endian", ["<", ">"])
-async def test_endian(store, endian):
-    data = np.arange(0, 16 * 18, dtype=f"{endian}u2").reshape(16, 18)
+@pytest.mark.parametrize("input_endian", ["<u2", ">u2"])
+@pytest.mark.parametrize("store_endian", ["<u2", ">u2"])
+async def test_endian(store, input_endian, store_endian):
+    data = np.arange(0, 16 * 18, dtype=input_endian).reshape(16, 18)
 
     await do_test(
         store,
         data,
         dict(
+            dtype=np.dtype(store_endian),
             fill_value=1,
             compressor={"id": "blosc", "cname": "zstd", "clevel": 5},
-            filters=[{"id": "delta", "dtype": data.dtype}],
+            filters=[{"id": "delta", "dtype": store_endian}],
         ),
         dict(
+            dtype=np.dtype(store_endian),
             fill_value=1,
             compressor=numcodecs.get_codec(
                 {"id": "blosc", "cname": "zstd", "clevel": 5}
             ),
-            filters=[numcodecs.get_codec({"id": "delta", "dtype": data.dtype})],
+            filters=[numcodecs.get_codec({"id": "delta", "dtype": store_endian})],
         ),
     )
 
 
 @pytest.mark.asyncio
-async def test_f_order(store):
-    data = np.arange(0, 16 * 18, dtype="<u2").reshape(16, 18, order="F")
+@pytest.mark.parametrize("input_order", ["F", "C"])
+@pytest.mark.parametrize("store_order", ["F", "C"])
+async def test_order(store, input_order, store_order):
+    data = np.arange(0, 16 * 18, dtype="<u2").reshape(16, 18, order=input_order)
 
-    a, z2 = await do_test(
+    zarrita_array, zarr_array = await do_test(
         store,
         data,
         dict(
             fill_value=1,
-            order="F",
+            order=store_order,
             compressor={"id": "blosc", "cname": "zstd", "clevel": 5},
             filters=[{"id": "delta", "dtype": data.dtype}],
         ),
         dict(
             fill_value=1,
-            order="F",
+            order=store_order,
             compressor=numcodecs.get_codec(
                 {"id": "blosc", "cname": "zstd", "clevel": 5}
             ),
@@ -213,8 +220,18 @@ async def test_f_order(store):
         ),
     )
 
-    assert (await a.async_[:16, :18].get()).flags.f_contiguous
-    assert z2[:16, :18].flags.f_contiguous
+    zarrita_data = await zarrita_array.async_[:16, :18].get()
+    zarr_data = zarr_array[:16, :18]
+    if store_order == "F":
+        assert zarrita_data.flags.f_contiguous
+        assert not zarrita_data.flags.c_contiguous
+        assert zarr_data.flags.f_contiguous
+        assert not zarr_data.flags.c_contiguous
+    else:
+        assert not zarrita_data.flags.f_contiguous
+        assert zarrita_data.flags.c_contiguous
+        assert not zarr_data.flags.f_contiguous
+        assert zarr_data.flags.c_contiguous
 
 
 @pytest.mark.asyncio
