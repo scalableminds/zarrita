@@ -38,7 +38,7 @@ jobs:
           unzip l4_sample.zip
       - name: Run tests
         run: |
-          poetry run pytest -vv tests/test_v2.py tests/test_v3.py
+          poetry run pytest -vv tests/test_v2.py tests/test_v3.py tests/test_store.py
       - name: Run perf tests
         run: |
           TEST_SIZE=128 poetry run pytest -vv -s tests/test_perf.py

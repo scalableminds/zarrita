@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 from shutil import rmtree
+from typing import Any, Literal
 
 import numcodecs
 import numpy as np
@@ -18,16 +19,20 @@ def store() -> Store:
     return LocalStore(path)
 
 
-async def do_test(store, data, zarrita_kwargs, zarr_kwargs):
+async def do_test(
+    store: Store,
+    data: np.ndarray,
+    zarrita_kwargs: Any,
+    zarr_kwargs: Any,
+):
     # setup
     zarrita_dtype = zarrita_kwargs.pop("dtype", data.dtype)
     zarrita_array = await ArrayV2.create_async(
-        store,
-        "zarrita_v2",
+        store / "zarrita_v2",
         shape=data.shape,
         dtype=zarrita_dtype,
         chunks=(10, 10),
-        **{
+        **{  # type: ignore
             **dict(dimension_separator=".", compressor=None, filters=None),
             **zarrita_kwargs,
         },
@@ -60,7 +65,7 @@ async def do_test(store, data, zarrita_kwargs, zarr_kwargs):
     assert np.array_equal(data, zarr_array[:16, :18])
 
     # open again
-    zarrita_array = await ArrayV2.open_async(store, "zarrita_v2")
+    zarrita_array = await ArrayV2.open_async(store / "zarrita_v2")
     assert np.array_equal(data, await zarrita_array.async_[:16, :18].get())
 
     # open zarrita array with zarr
@@ -68,7 +73,7 @@ async def do_test(store, data, zarrita_kwargs, zarr_kwargs):
     assert np.array_equal(data, zarrita_array_via_zarr[:16, :18])
 
     # open zarr array via zarrita
-    zarr_array_via_zarrita = await ArrayV2.open_async(store, "zarr_v2")
+    zarr_array_via_zarrita = await ArrayV2.open_async(store / "zarr_v2")
     assert np.array_equal(data, zarr_array_via_zarrita[:16, :18])
 
     await check_zarr2_files(store, "zarrita_v2", "zarr_v2")
@@ -76,15 +81,18 @@ async def do_test(store, data, zarrita_kwargs, zarr_kwargs):
     return zarrita_array, zarr_array
 
 
-async def check_zarr2_files(store, folder_a, folder_b):
-    assert json.loads(await store.get_async(f"{folder_a}/.zarray")) == json.loads(
-        await store.get_async(f"{folder_b}/.zarray")
-    )
-    zarr_zattrs_bytes = await store.get_async(f"{folder_b}/.zattrs")
-    if zarr_zattrs_bytes is not None:
-        assert json.loads(await store.get_async(f"{folder_a}/.zattrs")) == json.loads(
-            zarr_zattrs_bytes
-        )
+async def check_zarr2_files(store: Store, folder_a: str, folder_b: str):
+    zarray_a_bytes = await store.get_async(f"{folder_a}/.zarray")
+    zarray_b_bytes = await store.get_async(f"{folder_b}/.zarray")
+    assert zarray_a_bytes is not None
+    assert zarray_b_bytes is not None
+    assert json.loads(zarray_a_bytes) == json.loads(zarray_b_bytes)
+
+    zattrs_a_bytes = await store.get_async(f"{folder_a}/.zattrs")
+    zattrs_b_bytes = await store.get_async(f"{folder_b}/.zattrs")
+    if zattrs_b_bytes is not None:
+        assert zattrs_a_bytes is not None
+        assert json.loads(zattrs_a_bytes) == json.loads(zattrs_b_bytes)
     assert await store.get_async(f"{folder_a}/0.0") == await store.get_async(
         f"{folder_b}/0.0"
     )
@@ -100,7 +108,7 @@ async def check_zarr2_files(store, folder_a, folder_b):
 
 
 @pytest.mark.asyncio
-async def test_simple(store):
+async def test_simple(store: Store):
     data = np.arange(0, 16 * 18, dtype="uint16").reshape(16, 18)
 
     await do_test(
@@ -112,7 +120,7 @@ async def test_simple(store):
 
 
 @pytest.mark.asyncio
-async def test_compressor(store):
+async def test_compressor(store: Store):
     data = np.arange(0, 16 * 18, dtype="uint16").reshape(16, 18)
 
     await do_test(
@@ -132,7 +140,7 @@ async def test_compressor(store):
 
 
 @pytest.mark.asyncio
-async def test_filters(store):
+async def test_filters(store: Store):
     data = np.arange(0, 16 * 18, dtype="uint16").reshape(16, 18)
 
     await do_test(
@@ -148,7 +156,7 @@ async def test_filters(store):
 
 
 @pytest.mark.asyncio
-async def test_filters_and_compressors(store):
+async def test_filters_and_compressors(store: Store):
     data = np.arange(0, 16 * 18, dtype="uint16").reshape(16, 18)
 
     await do_test(
@@ -172,7 +180,11 @@ async def test_filters_and_compressors(store):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("input_endian", ["<u2", ">u2"])
 @pytest.mark.parametrize("store_endian", ["<u2", ">u2"])
-async def test_endian(store, input_endian, store_endian):
+async def test_endian(
+    store: Store,
+    input_endian: Literal["<u2", ">u2"],
+    store_endian: Literal["<u2", ">u2"],
+):
     data = np.arange(0, 16 * 18, dtype=input_endian).reshape(16, 18)
 
     await do_test(
@@ -198,7 +210,9 @@ async def test_endian(store, input_endian, store_endian):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("input_order", ["F", "C"])
 @pytest.mark.parametrize("store_order", ["F", "C"])
-async def test_order(store, input_order, store_order):
+async def test_order(
+    store: Store, input_order: Literal["F", "C"], store_order: Literal["F", "C"]
+):
     data = np.arange(0, 16 * 18, dtype="<u2").reshape(16, 18, order=input_order)
 
     zarrita_array, zarr_array = await do_test(
@@ -235,7 +249,7 @@ async def test_order(store, input_order, store_order):
 
 
 @pytest.mark.asyncio
-async def test_attributes(store):
+async def test_attributes(store: Store):
     data = np.arange(0, 16 * 18, dtype="<u2").reshape(16, 18)
 
     await do_test(
@@ -247,7 +261,7 @@ async def test_attributes(store):
 
 
 @pytest.mark.asyncio
-async def test_no_attributes(store):
+async def test_no_attributes(store: Store):
     data = np.arange(0, 16 * 18, dtype="<u2").reshape(16, 18)
 
     await do_test(
@@ -262,7 +276,7 @@ async def test_no_attributes(store):
 
 
 @pytest.mark.asyncio
-async def test_empty_attributes(store):
+async def test_empty_attributes(store: Store):
     data = np.arange(0, 16 * 18, dtype="<u2").reshape(16, 18)
 
     await do_test(
@@ -276,10 +290,10 @@ async def test_empty_attributes(store):
     assert await store.get_async("zarr_v2/.zattrs") is None
 
 
-def test_group(store):
+def test_group(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    g = GroupV2.create(store, "group")
+    g = GroupV2.create(store / "group")
     g.create_array(
         "array",
         shape=data.shape,
@@ -294,17 +308,17 @@ def test_group(store):
 
 
 @pytest.mark.asyncio
-async def test_open_auto(store):
+async def test_open_auto(store: Store):
     data = np.arange(0, 16 * 18, dtype="<u2").reshape(16, 18)
 
-    group_v2 = await GroupV2.create_async(store, "group_v2")
+    group_v2 = await GroupV2.create_async(store / "group_v2")
     await group_v2.create_array_async(
         "zarrita_v2",
         shape=data.shape,
         dtype=data.dtype,
         chunks=(10, 10),
     )
-    group_v3 = await Group.create_async(store, "group_v3")
+    group_v3 = await Group.create_async(store / "group_v3")
     await group_v3.create_array_async(
         "zarrita_v3",
         shape=data.shape,
@@ -313,35 +327,32 @@ async def test_open_auto(store):
     )
 
     assert isinstance(
-        await Array.open_auto_async(store, "group_v2/zarrita_v2"), ArrayV2
+        await Array.open_auto_async(store / "group_v2/zarrita_v2"), ArrayV2
     )
-    assert isinstance(await Array.open_auto_async(store, "group_v3/zarrita_v3"), Array)
+    assert isinstance(await Array.open_auto_async(store / "group_v3/zarrita_v3"), Array)
 
-    assert isinstance(await open_auto_async(store, "group_v2"), GroupV2)
-    assert isinstance(await open_auto_async(store, "group_v2/zarrita_v2"), ArrayV2)
-    assert isinstance(await open_auto_async(store, "group_v3"), Group)
-    assert isinstance(await open_auto_async(store, "group_v3/zarrita_v3"), Array)
+    assert isinstance(await open_auto_async(store / "group_v2"), GroupV2)
+    assert isinstance(await open_auto_async(store / "group_v2/zarrita_v2"), ArrayV2)
+    assert isinstance(await open_auto_async(store / "group_v3"), Group)
+    assert isinstance(await open_auto_async(store / "group_v3/zarrita_v3"), Array)
 
 
-def test_exists_ok(store):
+def test_exists_ok(store: Store):
     ArrayV2.create(
-        store,
-        "exists_ok",
+        store / "exists_ok",
         shape=(16, 16),
         chunks=(16, 16),
         dtype=np.dtype("uint8"),
     )
     with pytest.raises(AssertionError):
         ArrayV2.create(
-            store,
-            "exists_ok",
+            store / "exists_ok",
             shape=(16, 16),
             chunks=(16, 16),
             dtype=np.dtype("uint8"),
         )
     ArrayV2.create(
-        store,
-        "exists_ok",
+        store / "exists_ok",
         shape=(16, 16),
         chunks=(16, 16),
         dtype=np.dtype("uint8"),

@@ -56,11 +56,10 @@ def folder_inodes(folder: Path) -> int:
 
 
 @pytest.mark.parametrize("layer_name, testdata", TESTDATA)
-def test_sharding(store: Store, layer_name: str, testdata: np.ndarray):
+def test_zarrita_sharding(store: Store, layer_name: str, testdata: np.ndarray):
     print("")
     a = Array.create(
-        store,
-        f"l4_sample_zarrita_sharding/{layer_name}",
+        store / "l4_sample_zarrita_sharding" / layer_name,
         shape=testdata.shape,
         chunk_shape=(1024, 1024, 1024),
         dtype=testdata.dtype,

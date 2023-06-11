@@ -4,7 +4,7 @@ from typing import Optional, Tuple
 import numpy as np
 
 from zarrita.common import BytesLike
-from zarrita.store import Store
+from zarrita.store import StorePath
 
 
 # ValueHandle abstracts over files, byte buffer, and arrays.
@@ -34,17 +34,15 @@ class ValueHandle:
 
 
 class FileValueHandle(ValueHandle):
-    store: "Store"
-    path: str
+    store_path: "StorePath"
     selection: Optional[slice] = None
 
-    def __init__(self, store: "Store", path: str):
+    def __init__(self, store_path: "StorePath"):
         super().__init__()
-        self.store = store
-        self.path = path
+        self.store_path = store_path
 
     def __getitem__(self, selection: slice) -> ValueHandle:
-        out = FileValueHandle(self.store, self.path)
+        out = FileValueHandle(self.store_path)
         out.selection = selection
         return out
 
@@ -54,16 +52,16 @@ class FileValueHandle(ValueHandle):
     ):
         buf = await value.tobytes()
         if buf:
-            await self.store.set_async(self.path, buf)
+            await self.store_path.set_async(buf)
         else:
-            await self.store.delete_async(self.path)
+            await self.store_path.delete_async()
 
     async def tobytes(self) -> Optional[bytes]:
         if self.selection:
-            return await self.store.get_async(
-                self.path, (self.selection.start, self.selection.stop)
+            return await self.store_path.get_async(
+                (self.selection.start, self.selection.stop)
             )
-        return await self.store.get_async(self.path)
+        return await self.store_path.get_async()
 
     async def toarray(
         self, shape: Optional[Tuple[int, ...]] = None

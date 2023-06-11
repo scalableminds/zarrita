@@ -1,5 +1,6 @@
 from pathlib import Path
 from shutil import rmtree
+from typing import Literal
 
 import numpy as np
 import pytest
@@ -18,7 +19,7 @@ def store() -> Store:
     return LocalStore(path)
 
 
-def test_sharding(store):
+def test_sharding(store: Store):
     data = (
         wk.Dataset.open("l4_sample")
         .get_layer("color")
@@ -27,8 +28,7 @@ def test_sharding(store):
     )
 
     a = Array.create(
-        store,
-        "l4_sample/color/1",
+        store / "l4_sample" / "color" / "1",
         shape=data.shape,
         chunk_shape=(64, 64, 64),
         dtype=data.dtype,
@@ -51,7 +51,7 @@ def test_sharding(store):
     assert np.array_equal(data, read_data)
 
 
-def test_sharding_partial(store):
+def test_sharding_partial(store: Store):
     data = (
         wk.Dataset.open("l4_sample")
         .get_layer("color")
@@ -60,8 +60,7 @@ def test_sharding_partial(store):
     )
 
     a = Array.create(
-        store,
-        "l4_sample/color/1",
+        store / "l4_sample" / "color" / "1",
         shape=tuple(a + 10 for a in data.shape),
         chunk_shape=(512, 512, 512),
         dtype=data.dtype,
@@ -91,12 +90,16 @@ def test_sharding_partial(store):
 @pytest.mark.parametrize("store_order", ["F", "C"])
 @pytest.mark.parametrize("runtime_order", ["F", "C"])
 @pytest.mark.asyncio
-async def test_order(store, input_order, store_order, runtime_order):
+async def test_order(
+    store: Store,
+    input_order: Literal["F", "C"],
+    store_order: Literal["F", "C"],
+    runtime_order: Literal["F", "C"],
+):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
 
     a = await Array.create_async(
-        store,
-        "order",
+        store / "order",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
@@ -110,8 +113,7 @@ async def test_order(store, input_order, store_order, runtime_order):
     assert np.array_equal(data, read_data)
 
     a = await Array.open_async(
-        store,
-        "order",
+        store / "order",
         runtime_configuration=runtime_configuration(order=runtime_order),
     )
     read_data = await a.async_[:, :].get()
@@ -138,12 +140,11 @@ async def test_order(store, input_order, store_order, runtime_order):
     assert await store.get_async("order/0.0") == await store.get_async("order_zarr/0.0")
 
 
-def test_order_implicitC(store):
+def test_order_implicitC(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="F")
 
     a = Array.create(
-        store,
-        "order_implicitC",
+        store / "order_implicitC",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
@@ -157,23 +158,21 @@ def test_order_implicitC(store):
     assert not read_data.flags["F_CONTIGUOUS"]
 
 
-def test_open(store):
+def test_open(store: Store):
     a = Array.create(
-        store,
-        "open",
+        store / "open",
         shape=(16, 16),
         chunk_shape=(16, 16),
         dtype="int32",
         fill_value=0,
     )
-    b = Array.open(store, "open")
+    b = Array.open(store / "open")
     assert a.metadata == b.metadata
 
 
-def test_open_sharding(store):
+def test_open_sharding(store: Store):
     a = Array.create(
-        store,
-        "open_sharding",
+        store / "open_sharding",
         shape=(16, 16),
         chunk_shape=(16, 16),
         dtype="int32",
@@ -185,16 +184,15 @@ def test_open_sharding(store):
             )
         ],
     )
-    b = Array.open(store, "open_sharding")
+    b = Array.open(store / "open_sharding")
     assert a.metadata == b.metadata
 
 
-def test_simple(store):
+def test_simple(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
     a = Array.create(
-        store,
-        "simple",
+        store / "simple",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
@@ -205,7 +203,7 @@ def test_simple(store):
     assert np.array_equal(data, a[:, :])
 
 
-def test_morton(store):
+def test_morton(store: Store):
     assert list(morton_order_iter((2, 2))) == [(0, 0), (1, 0), (0, 1), (1, 1)]
     assert list(morton_order_iter((2, 2, 2))) == [
         (0, 0, 0),
@@ -237,10 +235,10 @@ def test_morton(store):
     ]
 
 
-def test_group(store):
+def test_group(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    g = Group.create(store, "group")
+    g = Group.create(store / "group")
     g.create_array(
         "array",
         shape=data.shape,
@@ -254,12 +252,11 @@ def test_group(store):
     assert isinstance(g["group2"], Group)
 
 
-def test_write_partial_chunks(store):
+def test_write_partial_chunks(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
     a = Array.create(
-        store,
-        "write_partial_chunks",
+        store / "write_partial_chunks",
         shape=data.shape,
         chunk_shape=(20, 20),
         dtype=data.dtype,
@@ -269,12 +266,11 @@ def test_write_partial_chunks(store):
     assert np.array_equal(a[0:16, 0:16], data)
 
 
-def test_write_full_chunks(store):
+def test_write_full_chunks(store: Store):
     data = np.arange(0, 16 * 16, dtype="uint16").reshape((16, 16))
 
     a = Array.create(
-        store,
-        "write_full_chunks",
+        store / "write_full_chunks",
         shape=(16, 16),
         chunk_shape=(20, 20),
         dtype=data.dtype,
@@ -284,8 +280,7 @@ def test_write_full_chunks(store):
     assert np.array_equal(a[0:16, 0:16], data)
 
     a = Array.create(
-        store,
-        "write_full_chunks2",
+        store / "write_full_chunks2",
         shape=(20, 20),
         chunk_shape=(20, 20),
         dtype=data.dtype,
@@ -294,12 +289,11 @@ def test_write_full_chunks(store):
     assert np.all(a[16:20, 16:20] == 1)
 
 
-def test_write_partial_sharded_chunks(store):
+def test_write_partial_sharded_chunks(store: Store):
     data = np.arange(0, 16 * 16, dtype="uint16").reshape((16, 16))
 
     a = Array.create(
-        store,
-        "write_partial_sharded_chunks",
+        store / "write_partial_sharded_chunks",
         shape=(40, 40),
         chunk_shape=(20, 20),
         dtype=data.dtype,
@@ -313,12 +307,11 @@ def test_write_partial_sharded_chunks(store):
 
 
 @pytest.mark.asyncio
-async def test_delete_empty_chunks(store):
+async def test_delete_empty_chunks(store: Store):
     data = np.ones((16, 16))
 
     a = await Array.create_async(
-        store,
-        "delete_empty_chunks",
+        store / "delete_empty_chunks",
         shape=data.shape,
         chunk_shape=(32, 32),
         dtype=data.dtype,
@@ -331,10 +324,9 @@ async def test_delete_empty_chunks(store):
 
 
 @pytest.mark.asyncio
-async def test_delete_empty_sharded_chunks(store):
+async def test_delete_empty_sharded_chunks(store: Store):
     a = await Array.create_async(
-        store,
-        "delete_empty_sharded_chunks",
+        store / "delete_empty_sharded_chunks",
         shape=(16, 16),
         chunk_shape=(8, 16),
         dtype="uint16",
@@ -353,19 +345,16 @@ async def test_delete_empty_sharded_chunks(store):
     data[:8, :8] = 0
     assert np.array_equal(data, await a.async_[:, :].get())
     assert await store.get_async("delete_empty_sharded_chunks/c/1/0") is None
-    assert (
-        len(await store.get_async("delete_empty_sharded_chunks/c/0/0"))
-        == 16 * 2 + 8 * 8 * 2 + 4
-    )
+    chunk_bytes = await store.get_async("delete_empty_sharded_chunks/c/0/0")
+    assert chunk_bytes is not None and len(chunk_bytes) == 16 * 2 + 8 * 8 * 2 + 4
 
 
 @pytest.mark.asyncio
-async def test_zarr_compat(store):
+async def test_zarr_compat(store: Store):
     data = np.zeros((16, 18), dtype="uint16")
 
     a = await Array.create_async(
-        store,
-        "zarr_compat3",
+        store / "zarr_compat3",
         shape=data.shape,
         chunk_shape=(10, 10),
         dtype=data.dtype,
@@ -402,12 +391,11 @@ async def test_zarr_compat(store):
 
 
 @pytest.mark.asyncio
-async def test_zarr_compat_F(store):
+async def test_zarr_compat_F(store: Store):
     data = np.zeros((16, 18), dtype="uint16", order="F")
 
     a = await Array.create_async(
-        store,
-        "zarr_compatF3",
+        store / "zarr_compatF3",
         shape=data.shape,
         chunk_shape=(10, 10),
         dtype=data.dtype,
@@ -445,12 +433,11 @@ async def test_zarr_compat_F(store):
     )
 
 
-def test_dimension_names(store):
+def test_dimension_names(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
     Array.create(
-        store,
-        "dimension_names",
+        store / "dimension_names",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
@@ -458,29 +445,27 @@ def test_dimension_names(store):
         dimension_names=("x", "y"),
     )
 
-    assert Array.open(store, "dimension_names").metadata.dimension_names == (
+    assert Array.open(store / "dimension_names").metadata.dimension_names == (
         "x",
         "y",
     )
 
     Array.create(
-        store,
-        "dimension_names2",
+        store / "dimension_names2",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
     )
 
-    assert Array.open(store, "dimension_names2").metadata.dimension_names is None
+    assert Array.open(store / "dimension_names2").metadata.dimension_names is None
 
 
-def test_gzip(store):
+def test_gzip(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
     a = Array.create(
-        store,
-        "gzip",
+        store / "gzip",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
@@ -494,12 +479,11 @@ def test_gzip(store):
 
 @pytest.mark.parametrize("endian", ["big", "little"])
 @pytest.mark.asyncio
-async def test_endian(store, endian):
+async def test_endian(store: Store, endian: Literal["big", "little"]):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
     a = await Array.create_async(
-        store,
-        "endian",
+        store / "endian",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
@@ -530,12 +514,15 @@ async def test_endian(store, endian):
 @pytest.mark.parametrize("dtype_input_endian", [">u2", "<u2"])
 @pytest.mark.parametrize("dtype_store_endian", ["big", "little"])
 @pytest.mark.asyncio
-async def test_endian_write(store, dtype_input_endian, dtype_store_endian):
+async def test_endian_write(
+    store: Store,
+    dtype_input_endian: Literal[">u2", "<u2"],
+    dtype_store_endian: Literal["big", "little"],
+):
     data = np.arange(0, 256, dtype=dtype_input_endian).reshape((16, 16))
 
     a = await Array.create_async(
-        store,
-        "endian",
+        store / "endian",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype="uint16",
@@ -563,11 +550,10 @@ async def test_endian_write(store, dtype_input_endian, dtype_store_endian):
     )
 
 
-def test_invalid_metadata(store):
+def test_invalid_metadata(store: Store):
     with pytest.raises(AssertionError):
         Array.create(
-            store,
-            "invalid",
+            store / "invalid",
             shape=(16, 16, 16),
             chunk_shape=(16, 16),
             dtype=np.dtype("uint8"),
@@ -576,8 +562,7 @@ def test_invalid_metadata(store):
 
     with pytest.raises(AssertionError):
         Array.create(
-            store,
-            "invalid",
+            store / "invalid",
             shape=(16, 16),
             chunk_shape=(16, 16),
             dtype=np.dtype("uint8"),
@@ -590,8 +575,7 @@ def test_invalid_metadata(store):
 
     with pytest.raises(AssertionError):
         Array.create(
-            store,
-            "invalid",
+            store / "invalid",
             shape=(16, 16),
             chunk_shape=(16, 16),
             dtype=np.dtype("uint8"),
@@ -602,8 +586,7 @@ def test_invalid_metadata(store):
         )
     with pytest.raises(AssertionError):
         Array.create(
-            store,
-            "invalid",
+            store / "invalid",
             shape=(16, 16),
             chunk_shape=(16, 16),
             dtype=np.dtype("uint8"),
@@ -615,8 +598,7 @@ def test_invalid_metadata(store):
 
     with pytest.warns(UserWarning):
         Array.create(
-            store,
-            "invalid",
+            store / "invalid",
             shape=(16, 16),
             chunk_shape=(16, 16),
             dtype=np.dtype("uint8"),
@@ -629,12 +611,11 @@ def test_invalid_metadata(store):
 
 
 @pytest.mark.asyncio
-async def test_reshape(store):
+async def test_reshape(store: Store):
     data = np.zeros((16, 18), dtype="uint16")
 
     a = await Array.create_async(
-        store,
-        "reshape",
+        store / "reshape",
         shape=data.shape,
         chunk_shape=(10, 10),
         dtype=data.dtype,
@@ -656,25 +637,22 @@ async def test_reshape(store):
     assert await store.get_async("reshape/1.1") is None
 
 
-def test_exists_ok(store):
+def test_exists_ok(store: Store):
     Array.create(
-        store,
-        "exists_ok",
+        store / "exists_ok",
         shape=(16, 16),
         chunk_shape=(16, 16),
         dtype=np.dtype("uint8"),
     )
     with pytest.raises(AssertionError):
         Array.create(
-            store,
-            "exists_ok",
+            store / "exists_ok",
             shape=(16, 16),
             chunk_shape=(16, 16),
             dtype=np.dtype("uint8"),
         )
     Array.create(
-        store,
-        "exists_ok",
+        store / "exists_ok",
         shape=(16, 16),
         chunk_shape=(16, 16),
         dtype=np.dtype("uint8"),
