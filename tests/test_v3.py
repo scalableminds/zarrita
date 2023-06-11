@@ -4,12 +4,19 @@ from typing import Literal
 
 import numpy as np
 import pytest
-import webknossos as wk
+import wkw
 import zarr
 from pytest import fixture
 
 from zarrita import Array, Group, LocalStore, Store, codecs, runtime_configuration
 from zarrita.indexing import morton_order_iter
+
+
+@fixture
+def l4_sample_data() -> np.ndarray:
+    return wkw.Dataset.open("l4_sample/color/1").read(
+        (3072, 3072, 512), (128, 128, 128)
+    )[0]
 
 
 @fixture
@@ -19,13 +26,8 @@ def store() -> Store:
     return LocalStore(path)
 
 
-def test_sharding(store: Store):
-    data = (
-        wk.Dataset.open("l4_sample")
-        .get_layer("color")
-        .get_mag(1)
-        .read()[0][:128, :128, :128]
-    )
+def test_sharding(store: Store, l4_sample_data: np.ndarray):
+    data = l4_sample_data
 
     a = Array.create(
         store / "l4_sample" / "color" / "1",
@@ -51,13 +53,8 @@ def test_sharding(store: Store):
     assert np.array_equal(data, read_data)
 
 
-def test_sharding_partial(store: Store):
-    data = (
-        wk.Dataset.open("l4_sample")
-        .get_layer("color")
-        .get_mag(1)
-        .read()[0][:128, :128, :128]
-    )
+def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
+    data = l4_sample_data
 
     a = Array.create(
         store / "l4_sample" / "color" / "1",

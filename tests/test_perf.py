@@ -6,7 +6,6 @@ from typing import List, Tuple
 
 import numpy as np
 import pytest
-import webknossos as wk
 import wkw
 import zarr
 from numcodecs import Blosc
@@ -20,17 +19,15 @@ TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
 TESTDATA: List[Tuple[str, np.ndarray]] = [
     (
         "color",
-        wk.Dataset.open("l4_sample")
-        .get_layer("color")
-        .get_mag(1)
-        .read()[0][:TEST_SIZE, :TEST_SIZE, :TEST_SIZE],
+        wkw.Dataset.open("l4_sample/color/1").read(
+            (3072, 3072, 512), (TEST_SIZE, TEST_SIZE, TEST_SIZE)
+        )[0],
     ),
     (
         "segmentation",
-        wk.Dataset.open("l4_sample")
-        .get_layer("segmentation")
-        .get_mag(1)
-        .read()[0][:TEST_SIZE, :TEST_SIZE, :TEST_SIZE],
+        wkw.Dataset.open("l4_sample/segmentation/1").read(
+            (3072, 3072, 512), (TEST_SIZE, TEST_SIZE, TEST_SIZE)
+        )[0],
     ),
 ]
 
