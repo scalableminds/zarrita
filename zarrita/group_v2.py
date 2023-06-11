@@ -6,7 +6,7 @@ from attr import asdict, frozen
 
 from zarrita.array_v2 import ArrayV2
 from zarrita.common import ZARRAY_JSON, ZATTRS_JSON, ZGROUP_JSON, make_cattr
-from zarrita.store import StorePath
+from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
 
 
@@ -24,11 +24,12 @@ class GroupV2:
     @classmethod
     async def create_async(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         attributes: Optional[Dict[str, Any]] = None,
         exists_ok: bool = False,
     ) -> "GroupV2":
+        store_path = make_store_path(store)
         if not exists_ok:
             assert not await (store_path / ZGROUP_JSON).exists_async()
         group = cls(
@@ -40,17 +41,16 @@ class GroupV2:
     @classmethod
     def create(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         attributes: Optional[Dict[str, Any]] = None,
         exists_ok: bool = False,
     ) -> "GroupV2":
-        return sync(
-            cls.create_async(store_path, attributes=attributes, exists_ok=exists_ok)
-        )
+        return sync(cls.create_async(store, attributes=attributes, exists_ok=exists_ok))
 
     @classmethod
-    async def open_async(cls, store_path: StorePath) -> "GroupV2":
+    async def open_async(cls, store: StoreLike) -> "GroupV2":
+        store_path = make_store_path(store)
         zgroup_bytes = await (store_path / ZGROUP_JSON).get_async()
         assert zgroup_bytes is not None
         zattrs_bytes = await (store_path / ZATTRS_JSON).get_async()
@@ -78,7 +78,8 @@ class GroupV2:
         return group
 
     @staticmethod
-    async def open_or_array(store_path: StorePath) -> Union[ArrayV2, "GroupV2"]:
+    async def open_or_array(store: StoreLike) -> Union[ArrayV2, "GroupV2"]:
+        store_path = make_store_path(store)
         zgroup_bytes, zattrs_bytes = await asyncio.gather(
             (store_path / ZGROUP_JSON).get_async(),
             (store_path / ZATTRS_JSON).get_async(),

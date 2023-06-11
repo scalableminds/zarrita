@@ -48,8 +48,11 @@ class StorePath:
     def __truediv__(self, other: str) -> "StorePath":
         return self.__class__(self.store, _dereference_path(self.path, other))
 
+    def __str__(self) -> str:
+        return _dereference_path(str(self.store), self.path)
+
     def __repr__(self) -> str:
-        return _dereference_path(repr(self.store), self.path)
+        return f"StorePath({self.store.__class__.__name__}, {repr(str(self))})"
 
 
 class Store:
@@ -99,9 +102,6 @@ class Store:
 
     async def exists_async(self, key: str) -> bool:
         raise NotImplementedError
-
-    def as_path(self) -> StorePath:
-        return StorePath(self)
 
     def __truediv__(self, other: str) -> StorePath:
         return StorePath(self, other)
@@ -188,8 +188,11 @@ class LocalStore(Store):
         path = self.root / key
         return await to_thread(path.exists)
 
-    def __repr__(self) -> str:
+    def __str__(self) -> str:
         return f"file://{self.root}"
+
+    def __repr__(self) -> str:
+        return f"LocalStore({repr(str(self))})"
 
 
 class RemoteStore(Store):
@@ -247,5 +250,33 @@ class RemoteStore(Store):
         path = _dereference_path(self.root, key)
         return await self.fs._exists(path)
 
+    def __str__(self) -> str:
+        protocol = (
+            self.fs.protocol[0]
+            if isinstance(self.fs.protocol, list)
+            else self.fs.protocol
+        )
+        return f"{protocol}://{self.root}"
+
     def __repr__(self) -> str:
-        return f"{self.fs.protocol}://{self.root}"
+        return f"RemoteStore({repr(str(self))})"
+
+
+StoreLike = Union[Store, StorePath, Path, str]
+
+
+def make_store_path(store_like: StoreLike) -> StorePath:
+    if isinstance(store_like, StorePath):
+        return store_like
+    elif isinstance(store_like, Store):
+        return StorePath(store_like)
+    elif isinstance(store_like, Path):
+        return StorePath(Store.from_path(store_like))
+    elif isinstance(store_like, str):
+        try:
+            from upath import UPath
+
+            return StorePath(Store.from_path(UPath(store_like)))
+        except ImportError:
+            return StorePath(LocalStore(Path(store_like)))
+    raise TypeError

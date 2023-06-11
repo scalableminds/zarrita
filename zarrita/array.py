@@ -30,7 +30,7 @@ from zarrita.metadata import (
     dtype_to_data_type,
 )
 from zarrita.sharding import ShardingCodec
-from zarrita.store import StorePath
+from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
 from zarrita.value_handle import (
     ArrayValueHandle,
@@ -88,7 +88,7 @@ class Array:
     @classmethod
     async def create_async(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         shape: ChunkCoords,
         dtype: Union[str, np.dtype],
@@ -104,6 +104,7 @@ class Array:
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
         exists_ok: bool = False,
     ) -> "Array":
+        store_path = make_store_path(store)
         if not exists_ok:
             assert not await (store_path / ZARR_JSON).exists_async()
 
@@ -152,7 +153,7 @@ class Array:
     @classmethod
     def create(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         shape: ChunkCoords,
         dtype: Union[str, np.dtype],
@@ -170,7 +171,7 @@ class Array:
     ) -> "Array":
         return sync(
             cls.create_async(
-                store_path=store_path,
+                store=store,
                 shape=shape,
                 dtype=dtype,
                 chunk_shape=chunk_shape,
@@ -187,9 +188,10 @@ class Array:
     @classmethod
     async def open_async(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> "Array":
+        store_path = make_store_path(store)
         zarr_json_bytes = await (store_path / ZARR_JSON).get_async()
         assert zarr_json_bytes is not None
         return cls.from_json(
@@ -201,12 +203,10 @@ class Array:
     @classmethod
     def open(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> "Array":
-        return sync(
-            cls.open_async(store_path, runtime_configuration=runtime_configuration)
-        )
+        return sync(cls.open_async(store, runtime_configuration=runtime_configuration))
 
     @classmethod
     def from_json(
@@ -228,9 +228,10 @@ class Array:
     @classmethod
     async def open_auto_async(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> Union["Array", ArrayV2]:
+        store_path = make_store_path(store)
         v3_metadata_bytes = await (store_path / ZARR_JSON).get_async()
         if v3_metadata_bytes is not None:
             return cls.from_json(
@@ -244,10 +245,10 @@ class Array:
     @classmethod
     async def open_auto(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> Union["Array", ArrayV2]:
-        return sync(cls.open_auto_async(store_path, runtime_configuration))
+        return sync(cls.open_auto_async(store, runtime_configuration))
 
     async def _save_metadata(self) -> None:
         self._validate_metadata()
@@ -356,10 +357,16 @@ class Array:
         else:
             return out[()]
 
-    async def _read_chunk(self, chunk_coords, chunk_selection, out_selection, out):
+    async def _read_chunk(
+        self,
+        chunk_coords: ChunkCoords,
+        chunk_selection: SliceSelection,
+        out_selection: SliceSelection,
+        out: np.ndarray,
+    ):
         chunk_key_encoding = self.metadata.chunk_key_encoding
         chunk_key = chunk_key_encoding.encode_chunk_key(chunk_coords)
-        value_handle = FileValueHandle(self.store_path / chunk_key)
+        value_handle: ValueHandle = FileValueHandle(self.store_path / chunk_key)
 
         if len(self.codecs) == 1 and isinstance(self.codecs[0], ShardingCodec):
             value_handle = await self.codecs[0].decode_partial(

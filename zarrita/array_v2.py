@@ -19,7 +19,7 @@ from zarrita.common import (
 )
 from zarrita.indexing import BasicIndexer, is_total_slice
 from zarrita.metadata import ArrayV2Metadata
-from zarrita.store import StorePath
+from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
 from zarrita.value_handle import (
     BufferValueHandle,
@@ -58,7 +58,7 @@ class ArrayV2:
     @classmethod
     async def create_async(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         shape: ChunkCoords,
         dtype: np.dtype,
@@ -71,6 +71,7 @@ class ArrayV2:
         attributes: Optional[Dict[str, Any]] = None,
         exists_ok: bool = False,
     ) -> "ArrayV2":
+        store_path = make_store_path(store)
         if not exists_ok:
             assert not await (store_path / ZARRAY_JSON).exists_async()
 
@@ -99,7 +100,7 @@ class ArrayV2:
     @classmethod
     def create(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         shape: ChunkCoords,
         dtype: np.dtype,
@@ -114,7 +115,7 @@ class ArrayV2:
     ) -> "ArrayV2":
         return sync(
             cls.create_async(
-                store_path,
+                store,
                 shape=shape,
                 dtype=dtype,
                 chunks=chunks,
@@ -131,8 +132,9 @@ class ArrayV2:
     @classmethod
     async def open_async(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
     ) -> "ArrayV2":
+        store_path = make_store_path(store)
         zarray_bytes, zattrs_bytes = await asyncio.gather(
             (store_path / ZARRAY_JSON).get_async(),
             (store_path / ZATTRS_JSON).get_async(),
@@ -147,13 +149,9 @@ class ArrayV2:
     @classmethod
     def open(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
     ) -> "ArrayV2":
-        return sync(
-            cls.open_async(
-                store_path,
-            )
-        )
+        return sync(cls.open_async(store))
 
     @classmethod
     def from_json(

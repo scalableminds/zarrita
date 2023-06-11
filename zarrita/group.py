@@ -5,7 +5,7 @@ from attr import asdict, field, frozen
 
 from zarrita.array import Array, ArrayRuntimeConfiguration
 from zarrita.common import ZARR_JSON, make_cattr
-from zarrita.store import StorePath
+from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
 
 
@@ -24,11 +24,12 @@ class Group:
     @classmethod
     async def create_async(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         attributes: Optional[Dict[str, Any]] = None,
         exists_ok: bool = False,
     ) -> "Group":
+        store_path = make_store_path(store)
         if not exists_ok:
             assert not await (store_path / ZARR_JSON).exists_async()
         group = cls(
@@ -41,24 +42,23 @@ class Group:
     @classmethod
     def create(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         *,
         attributes: Optional[Dict[str, Any]] = None,
         exists_ok: bool = False,
     ) -> "Group":
-        return sync(
-            cls.create_async(store_path, attributes=attributes, exists_ok=exists_ok)
-        )
+        return sync(cls.create_async(store, attributes=attributes, exists_ok=exists_ok))
 
     @classmethod
-    async def open_async(cls, store_path: StorePath) -> "Group":
+    async def open_async(cls, store: StoreLike) -> "Group":
+        store_path = make_store_path(store)
         zarr_json_bytes = await (store_path / ZARR_JSON).get_async()
         assert zarr_json_bytes is not None
         return cls.from_json(store_path, json.loads(zarr_json_bytes))
 
     @classmethod
-    def open(cls, store_path: StorePath) -> "Group":
-        return sync(cls.open_async(store_path))
+    def open(cls, store: StoreLike) -> "Group":
+        return sync(cls.open_async(store))
 
     @classmethod
     def from_json(cls, store_path: StorePath, zarr_json: Any) -> "Group":
@@ -71,9 +71,10 @@ class Group:
     @classmethod
     async def open_or_array(
         cls,
-        store_path: StorePath,
+        store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> Union[Array, "Group"]:
+        store_path = make_store_path(store)
         zarr_json_bytes = await (store_path / ZARR_JSON).get_async()
         if zarr_json_bytes is None:
             raise KeyError

@@ -15,7 +15,8 @@
 - [x] check empty before create array
 - [ ] morton order in indexing
 - [ ] attrs -> dataclasses
-- [ ] test stores incl upath
+- [x] test stores incl upath
+- [ ] docstrings
 
 ## Non-priority
 
