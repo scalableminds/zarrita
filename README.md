@@ -15,8 +15,7 @@ store = zarrita.LocalStore('testdata') # or zarrita.RemoteStore('s3://bucket/tes
 
 ```python
 a = await zarrita.Array.create_async(
-    store,
-    'array',
+    store / 'array',
     shape=(6, 10),
     dtype='int32',
     chunk_shape=(2, 5),
@@ -29,7 +28,7 @@ await a.async_[:, :].set(np.ones((6, 10), dtype='int32'))
 ## Open an array
 
 ```python
-a = await zarrita.Array.open_async(store, 'array')
+a = await zarrita.Array.open_async(store / 'array')
 assert np.array_equal(await a.async_[:, :].get(), np.ones((6, 10), dtype='int32'))
 ```
 
@@ -37,8 +36,7 @@ assert np.array_equal(await a.async_[:, :].get(), np.ones((6, 10), dtype='int32'
 
 ```python
 a = await zarrita.Array.create_async(
-    store,
-    'sharding',
+    store / 'sharding',
     shape=(16, 16),
     dtype='int32',
     chunk_shape=(16, 16),
@@ -58,7 +56,7 @@ assert np.array_equal(await a.async_[:, :].get(), data)
 ## Create a group
 
 ```python
-g = await zarrita.Group.create_async(store, 'group')
+g = await zarrita.Group.create_async(store / 'group')
 g2 = await g.create_group_async('group2')
 a = await g2.create_array_async(
     'array',
@@ -72,9 +70,9 @@ await a.async_[:, :].set(np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
 ## Open a group
 
 ```python
-g = await zarrita.Group.open_async(store, 'group')
+g = await zarrita.Group.open_async(store / 'group')
 g2 = g['group2']
-a = g['group2/array']
+a = g['group2']['array']
 assert np.array_equal(await a.asnyc_[:, :].get(), np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
 ```
 

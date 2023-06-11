@@ -17,6 +17,10 @@ class StorePath:
         self.store = store
         self.path = path or ""
 
+    @classmethod
+    def from_path(cls, pth: "Path") -> "StorePath":
+        return cls(Store.from_path(pth))
+
     async def get_async(
         self, byte_range: Optional[Tuple[int, int]] = None
     ) -> Optional[BytesLike]:
@@ -41,6 +45,20 @@ class StorePath:
 
 
 class Store:
+    @classmethod
+    def from_path(cls, pth: "Path") -> "Store":
+        try:
+            from upath import UPath
+
+            if isinstance(pth, UPath):
+                storage_options = pth._kwargs.copy()
+                storage_options.pop("_url", None)
+                return RemoteStore(str(pth), **storage_options)
+        except ImportError:
+            pass
+
+        return LocalStore(pth)
+
     async def multi_get_async(
         self, keys: List[Tuple[str, Optional[Tuple[int, int]]]]
     ) -> List[Optional[BytesLike]]:

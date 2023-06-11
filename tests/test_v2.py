@@ -92,9 +92,7 @@ async def check_zarr2_files(store: Store, folder_a: str, folder_b: str):
     zattrs_b_bytes = await store.get_async(f"{folder_b}/.zattrs")
     if zattrs_b_bytes is not None:
         assert zattrs_a_bytes is not None
-        assert json.loads(zattrs_a_bytes) == json.loads(
-            zattrs_b_bytes
-        )
+        assert json.loads(zattrs_a_bytes) == json.loads(zattrs_b_bytes)
     assert await store.get_async(f"{folder_a}/0.0") == await store.get_async(
         f"{folder_b}/0.0"
     )
