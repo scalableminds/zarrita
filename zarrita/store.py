@@ -9,6 +9,14 @@ from fsspec.asyn import AsyncFileSystem
 from zarrita.common import BytesLike, to_thread
 
 
+def _dereference_path(root: str, path: str) -> str:
+    assert isinstance(root, str)
+    assert isinstance(path, str)
+    path = f"{root}/{path}" if root != "" else path
+    path = path.rstrip("/")
+    return path
+
+
 class StorePath:
     store: "Store"
     path: str
@@ -38,10 +46,10 @@ class StorePath:
         return await self.store.exists_async(self.path)
 
     def __truediv__(self, other: str) -> "StorePath":
-        return self.__class__(self.store, f"{self.path}/{other}")
+        return self.__class__(self.store, _dereference_path(self.path, other))
 
     def __repr__(self) -> str:
-        return f"{self.store}/{self.path}"
+        return _dereference_path(repr(self.store), self.path)
 
 
 class Store:
@@ -203,7 +211,7 @@ class RemoteStore(Store):
         self, key: str, byte_range: Optional[Tuple[int, int]] = None
     ) -> Optional[BytesLike]:
         assert isinstance(key, str)
-        path = f"{self.root}/{key}"
+        path = _dereference_path(self.root, key)
 
         try:
             value = await (
@@ -220,7 +228,7 @@ class RemoteStore(Store):
         self, key: str, value: BytesLike, byte_range: Optional[Tuple[int, int]] = None
     ) -> None:
         assert isinstance(key, str)
-        path = f"{self.root}/{key}"
+        path = _dereference_path(self.root, key)
 
         # write data
         if byte_range:
@@ -231,12 +239,12 @@ class RemoteStore(Store):
             await self.fs._write_bytes(path, value)
 
     async def delete_async(self, key: str) -> None:
-        path = f"{self.root}/{key}"
+        path = _dereference_path(self.root, key)
         if await self.fs._exists(path):
             await self.fs._rm(path)
 
     async def exists_async(self, key: str) -> bool:
-        path = f"{self.root}/{key}"
+        path = _dereference_path(self.root, key)
         return await self.fs._exists(path)
 
     def __repr__(self) -> str:
