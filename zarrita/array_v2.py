@@ -19,7 +19,7 @@ from zarrita.common import (
 )
 from zarrita.indexing import BasicIndexer, is_total_slice
 from zarrita.metadata import ArrayV2Metadata
-from zarrita.store import Store
+from zarrita.store import StorePath
 from zarrita.sync import sync
 from zarrita.value_handle import (
     BufferValueHandle,
@@ -53,14 +53,12 @@ class _AsyncArraySelectionProxy:
 class ArrayV2:
     metadata: ArrayV2Metadata
     attributes: Optional[Dict[str, Any]]
-    store: "Store"
-    path: str
+    store_path: StorePath
 
     @classmethod
     async def create_async(
         cls,
-        store: "Store",
-        path: str,
+        store_path: StorePath,
         *,
         shape: ChunkCoords,
         dtype: np.dtype,
@@ -74,7 +72,7 @@ class ArrayV2:
         exists_ok: bool = False,
     ) -> "ArrayV2":
         if not exists_ok:
-            assert not await store.exists_async(f"{path}/{ZARRAY_JSON}")
+            assert not await (store_path / ZARRAY_JSON).exists_async()
 
         metadata = ArrayV2Metadata(
             shape=shape,
@@ -92,8 +90,7 @@ class ArrayV2:
         )
         array = cls(
             metadata=metadata,
-            store=store,
-            path=path,
+            store_path=store_path,
             attributes=attributes,
         )
         await array._save_metadata()
@@ -102,8 +99,7 @@ class ArrayV2:
     @classmethod
     def create(
         cls,
-        store: "Store",
-        path: str,
+        store_path: StorePath,
         *,
         shape: ChunkCoords,
         dtype: np.dtype,
@@ -118,8 +114,7 @@ class ArrayV2:
     ) -> "ArrayV2":
         return sync(
             cls.create_async(
-                store,
-                path,
+                store_path,
                 shape=shape,
                 dtype=dtype,
                 chunks=chunks,
@@ -136,17 +131,15 @@ class ArrayV2:
     @classmethod
     async def open_async(
         cls,
-        store: "Store",
-        path: str,
+        store_path: StorePath,
     ) -> "ArrayV2":
         zarray_bytes, zattrs_bytes = await asyncio.gather(
-            store.get_async(f"{path}/{ZARRAY_JSON}"),
-            store.get_async(f"{path}/{ZATTRS_JSON}"),
+            (store_path / ZARRAY_JSON).get_async(),
+            (store_path / ZATTRS_JSON).get_async(),
         )
         assert zarray_bytes is not None
         return cls.from_json(
-            store,
-            path,
+            store_path,
             zarray_json=json.loads(zarray_bytes),
             zattrs_json=json.loads(zattrs_bytes) if zattrs_bytes is not None else None,
         )
@@ -154,28 +147,24 @@ class ArrayV2:
     @classmethod
     def open(
         cls,
-        store: "Store",
-        path: str,
+        store_path: StorePath,
     ) -> "ArrayV2":
         return sync(
             cls.open_async(
-                store,
-                path,
+                store_path,
             )
         )
 
     @classmethod
     def from_json(
         cls,
-        store: Store,
-        path: str,
+        store_path: StorePath,
         zarray_json: Any,
         zattrs_json: Optional[Any],
     ) -> "ArrayV2":
         metadata = make_cattr().structure(zarray_json, ArrayV2Metadata)
         out = cls(
-            store=store,
-            path=path,
+            store_path=store_path,
             metadata=metadata,
             attributes=zattrs_json,
         )
@@ -193,19 +182,15 @@ class ArrayV2:
 
         self._validate_metadata()
 
-        await self.store.set_async(
-            f"{self.path}/{ZARRAY_JSON}",
+        await (self.store_path / ZARRAY_JSON).set_async(
             json.dumps(asdict(self.metadata), default=convert).encode(),
         )
         if self.attributes is not None and len(self.attributes) > 0:
-            await self.store.set_async(
-                f"{self.path}/{ZATTRS_JSON}",
+            await (self.store_path / ZATTRS_JSON).set_async(
                 json.dumps(self.attributes).encode(),
             )
         else:
-            await self.store.delete_async(
-                f"{self.path}/{ZATTRS_JSON}",
-            )
+            await (self.store_path / ZATTRS_JSON).delete_async()
 
     def _validate_metadata(self) -> None:
         assert len(self.metadata.shape) == len(
@@ -250,9 +235,16 @@ class ArrayV2:
         else:
             return out[()]
 
-    async def _read_chunk(self, chunk_coords, chunk_selection, out_selection, out):
-        chunk_key = f"{self.path}/{self._encode_chunk_key(chunk_coords)}"
-        value_handle = FileValueHandle(self.store, chunk_key)
+    async def _read_chunk(
+        self,
+        chunk_coords: ChunkCoords,
+        chunk_selection: SliceSelection,
+        out_selection: SliceSelection,
+        out: np.ndarray,
+    ):
+        value_handle = FileValueHandle(
+            self.store_path / self._encode_chunk_key(chunk_coords)
+        )
 
         chunk_array = await self._decode_chunk(await value_handle.tobytes())
         if chunk_array is not None:
@@ -340,8 +332,9 @@ class ArrayV2:
         chunk_selection: SliceSelection,
         out_selection: SliceSelection,
     ):
-        chunk_key = f"{self.path}/{self._encode_chunk_key(chunk_coords)}"
-        value_handle = FileValueHandle(self.store, chunk_key)
+        value_handle = FileValueHandle(
+            self.store_path / self._encode_chunk_key(chunk_coords)
+        )
 
         if is_total_slice(chunk_selection, chunk_shape):
             # write entire chunks
@@ -420,5 +413,4 @@ class ArrayV2:
         return "0" if chunk_identifier == "" else chunk_identifier
 
     def __repr__(self):
-        path = self.path
-        return f"<Array_v2 {path}>"
+        return f"<Array_v2 {self.store_path}>"

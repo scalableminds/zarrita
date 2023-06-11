@@ -4,8 +4,40 @@ from pathlib import Path
 from typing import List, Optional, Tuple, Union
 
 import fsspec
+from fsspec.asyn import AsyncFileSystem
 
 from zarrita.common import BytesLike, to_thread
+
+
+class StorePath:
+    store: "Store"
+    path: str
+
+    def __init__(self, store: "Store", path: Optional[str] = None):
+        self.store = store
+        self.path = path or ""
+
+    async def get_async(
+        self, byte_range: Optional[Tuple[int, int]] = None
+    ) -> Optional[BytesLike]:
+        return await self.store.get_async(self.path, byte_range)
+
+    async def set_async(
+        self, value: BytesLike, byte_range: Optional[Tuple[int, int]] = None
+    ) -> None:
+        await self.store.set_async(self.path, value, byte_range)
+
+    async def delete_async(self) -> None:
+        await self.store.delete_async(self.path)
+
+    async def exists_async(self) -> bool:
+        return await self.store.exists_async(self.path)
+
+    def __truediv__(self, other: str) -> "StorePath":
+        return self.__class__(self.store, f"{self.path}/{other}")
+
+    def __repr__(self) -> str:
+        return f"{self.store}/{self.path}"
 
 
 class Store:
@@ -41,6 +73,12 @@ class Store:
 
     async def exists_async(self, key: str) -> bool:
         raise NotImplementedError
+
+    def as_path(self) -> StorePath:
+        return StorePath(self)
+
+    def __truediv__(self, other: str) -> StorePath:
+        return StorePath(self, other)
 
 
 class LocalStore(Store):
@@ -124,8 +162,14 @@ class LocalStore(Store):
         path = self.root / key
         return await to_thread(path.exists)
 
+    def __repr__(self) -> str:
+        return f"file://{self.root}"
+
 
 class RemoteStore(Store):
+    fs: AsyncFileSystem
+    root: str
+
     def __init__(self, url: str, **storage_options):
         assert isinstance(url, str)
 
@@ -176,3 +220,6 @@ class RemoteStore(Store):
     async def exists_async(self, key: str) -> bool:
         path = f"{self.root}/{key}"
         return await self.fs._exists(path)
+
+    def __repr__(self) -> str:
+        return f"{self.fs.protocol}://{self.root}"
