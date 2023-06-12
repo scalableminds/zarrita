@@ -243,7 +243,7 @@ class Array:
         return await ArrayV2.open_async(store_path)
 
     @classmethod
-    async def open_auto(
+    def open_auto(
         cls,
         store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
