@@ -66,10 +66,10 @@ class _AsyncArraySelectionProxy:
     selection: Selection
 
     async def get(self) -> np.ndarray:
-        return await self.array.get_async(self.selection)
+        return await self.array._get_async(self.selection)
 
     async def set(self, value: np.ndarray):
-        return await self.array.set_async(self.selection, value)
+        return await self.array._set_async(self.selection, value)
 
 
 def _json_convert(o):
@@ -334,9 +334,9 @@ class Array:
         return _AsyncArrayProxy(self)
 
     def __getitem__(self, selection: Selection):
-        return sync(self.get_async(selection))
+        return sync(self._get_async(selection))
 
-    async def get_async(self, selection: Selection):
+    async def _get_async(self, selection: Selection):
         indexer = BasicIndexer(
             selection,
             shape=self.metadata.shape,
@@ -415,15 +415,14 @@ class Array:
         if chunk_array.shape != self.metadata.chunk_grid.configuration.chunk_shape:
             chunk_array = chunk_array.reshape(
                 self.metadata.chunk_grid.configuration.chunk_shape,
-                order=self.runtime_configuration.order,
             )
 
         return chunk_array
 
     def __setitem__(self, selection: Selection, value: np.ndarray) -> None:
-        sync(self.set_async(selection, value))
+        sync(self._set_async(selection, value))
 
-    async def set_async(self, selection: Selection, value: np.ndarray) -> None:
+    async def _set_async(self, selection: Selection, value: np.ndarray) -> None:
         chunk_shape = self.metadata.chunk_grid.configuration.chunk_shape
         indexer = BasicIndexer(
             selection,
@@ -478,7 +477,6 @@ class Array:
                 chunk_array = np.empty(
                     chunk_shape,
                     dtype=self.metadata.dtype,
-                    order=self.runtime_configuration.order,
                 )
                 chunk_array.fill(value)
             else:
@@ -507,13 +505,10 @@ class Array:
                 chunk_array = np.empty(
                     chunk_shape,
                     dtype=self.metadata.dtype,
-                    order=self.runtime_configuration.order,
                 )
                 chunk_array.fill(self.metadata.fill_value)
             else:
-                chunk_array = tmp.copy(
-                    order=self.runtime_configuration.order,
-                )  # make a writable copy
+                chunk_array = tmp.copy()  # make a writable copy
             chunk_array[chunk_selection] = value[out_selection]
 
             await self._write_chunk_to_store(value_handle, chunk_array)
@@ -573,4 +568,4 @@ class Array:
         return sync(self.reshape_async(new_shape))
 
     def __repr__(self):
-        return f"<Array {self.store_path}>"
+        return f"<Array {self.store_path} shape={self.shape} dtype={self.dtype}>"

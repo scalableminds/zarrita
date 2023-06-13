@@ -453,4 +453,4 @@ class ArrayV2:
         return sync(self.reshape_async(new_shape))
 
     def __repr__(self):
-        return f"<Array_v2 {self.store_path}>"
+        return f"<Array_v2 {self.store_path} shape={self.shape} dtype={self.dtype}>"

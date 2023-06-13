@@ -216,7 +216,7 @@ class RemoteStore(Store):
 
         try:
             value = await (
-                self.fs._cat_file(path, byte_range[0], byte_range[1])
+                self.fs._cat_file(path, start=byte_range[0], end=byte_range[1])
                 if byte_range
                 else self.fs._cat_file(path)
             )

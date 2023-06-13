@@ -1,6 +1,6 @@
 from pathlib import Path
 from shutil import rmtree
-from typing import Literal
+from typing import Iterator, List, Literal
 
 import numpy as np
 import pytest
@@ -10,6 +10,7 @@ from pytest import fixture
 
 from zarrita import Array, Group, LocalStore, Store, codecs, runtime_configuration
 from zarrita.indexing import morton_order_iter
+from zarrita.metadata import CodecMetadata
 
 
 @fixture
@@ -20,10 +21,14 @@ def l4_sample_data() -> np.ndarray:
 
 
 @fixture
-def store() -> Store:
+def store() -> Iterator[Store]:
     path = Path("testdata")
     rmtree(path, ignore_errors=True)
-    return LocalStore(path)
+    try:
+        yield LocalStore(path)
+    finally:
+        # rmtree(path, ignore_errors=True)
+        pass
 
 
 def test_sharding(store: Store, l4_sample_data: np.ndarray):
@@ -83,17 +88,82 @@ def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
     assert np.array_equal(data, read_data)
 
 
+def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
+    data = l4_sample_data
+
+    a = Array.create(
+        store / "l4_sample" / "color" / "1",
+        shape=tuple(a + 10 for a in data.shape),
+        chunk_shape=(512, 512, 512),
+        dtype=data.dtype,
+        fill_value=1,
+        codecs=[
+            codecs.sharding_codec(
+                (32, 32, 32),
+                [
+                    codecs.transpose_codec("F"),
+                    codecs.blosc_codec("lz4"),
+                ],
+            )
+        ],
+    )
+
+    read_data = a[0:10, 0:10, 0:10]
+    assert np.all(read_data == 1)
+
+
+def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
+    data = l4_sample_data[:10, :10, :10]
+
+    a = Array.create(
+        store / "l4_sample" / "color" / "1",
+        shape=tuple(a + 10 for a in data.shape),
+        chunk_shape=(512, 512, 512),
+        dtype=data.dtype,
+        fill_value=1,
+        codecs=[
+            codecs.sharding_codec(
+                (32, 32, 32),
+                [
+                    codecs.transpose_codec("F"),
+                    codecs.blosc_codec("lz4"),
+                ],
+            )
+        ],
+    )
+
+    a[:10, :10, :10] = data
+
+    read_data = a[0:10, 0:10, 0:10]
+    assert np.array_equal(data, read_data)
+
+    data = data + 10
+    a[:10, :10, :10] = data
+    read_data = a[0:10, 0:10, 0:10]
+    assert np.array_equal(data, read_data)
+
+
 @pytest.mark.parametrize("input_order", ["F", "C"])
 @pytest.mark.parametrize("store_order", ["F", "C"])
-@pytest.mark.parametrize("runtime_order", ["F", "C"])
+@pytest.mark.parametrize("runtime_write_order", ["F", "C"])
+@pytest.mark.parametrize("runtime_read_order", ["F", "C"])
+@pytest.mark.parametrize("with_sharding", [True, False])
 @pytest.mark.asyncio
 async def test_order(
     store: Store,
     input_order: Literal["F", "C"],
     store_order: Literal["F", "C"],
-    runtime_order: Literal["F", "C"],
+    runtime_write_order: Literal["F", "C"],
+    runtime_read_order: Literal["F", "C"],
+    with_sharding: bool,
 ):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
+
+    codecs_: List[CodecMetadata] = (
+        [codecs.sharding_codec((8, 8), codecs=[codecs.transpose_codec(store_order)])]
+        if with_sharding
+        else [codecs.transpose_codec(store_order)]
+    )
 
     a = await Array.create_async(
         store / "order",
@@ -102,7 +172,8 @@ async def test_order(
         dtype=data.dtype,
         fill_value=0,
         chunk_key_encoding=("v2", "."),
-        codecs=[codecs.transpose_codec(store_order)],
+        codecs=codecs_,
+        runtime_configuration=runtime_configuration(runtime_write_order),
     )
 
     await a.async_[:, :].set(data)
@@ -111,48 +182,77 @@ async def test_order(
 
     a = await Array.open_async(
         store / "order",
-        runtime_configuration=runtime_configuration(order=runtime_order),
+        runtime_configuration=runtime_configuration(order=runtime_read_order),
     )
     read_data = await a.async_[:, :].get()
     assert np.array_equal(data, read_data)
 
-    if runtime_order == "F":
+    if runtime_read_order == "F":
         assert read_data.flags["F_CONTIGUOUS"]
         assert not read_data.flags["C_CONTIGUOUS"]
     else:
         assert not read_data.flags["F_CONTIGUOUS"]
         assert read_data.flags["C_CONTIGUOUS"]
 
-    # Compare with zarr-python
-    z = zarr.create(
-        shape=data.shape,
-        chunks=(16, 16),
-        dtype="<u2",
-        order=store_order,
-        compressor=None,
-        fill_value=1,
-        store="testdata/order_zarr",
+    if not with_sharding:
+        # Compare with zarr-python
+        z = zarr.create(
+            shape=data.shape,
+            chunks=(16, 16),
+            dtype="<u2",
+            order=store_order,
+            compressor=None,
+            fill_value=1,
+            store="testdata/order_zarr",
+        )
+        z[:, :] = data
+        assert await store.get_async("order/0.0") == await store.get_async(
+            "order_zarr/0.0"
+        )
+
+
+@pytest.mark.parametrize("input_order", ["F", "C"])
+@pytest.mark.parametrize("runtime_write_order", ["F", "C"])
+@pytest.mark.parametrize("runtime_read_order", ["F", "C"])
+@pytest.mark.parametrize("with_sharding", [True, False])
+def test_order_implicit(
+    store: Store,
+    input_order: Literal["F", "C"],
+    runtime_write_order: Literal["F", "C"],
+    runtime_read_order: Literal["F", "C"],
+    with_sharding: bool,
+):
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
+
+    codecs_: List[CodecMetadata] = (
+        [codecs.sharding_codec((8, 8))] if with_sharding else []
     )
-    z[:, :] = data
-    assert await store.get_async("order/0.0") == await store.get_async("order_zarr/0.0")
-
-
-def test_order_implicitC(store: Store):
-    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order="F")
 
     a = Array.create(
-        store / "order_implicitC",
+        store / "order_implicit",
         shape=data.shape,
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
+        codecs=codecs_,
+        runtime_configuration=runtime_configuration(runtime_write_order),
     )
 
     a[:, :] = data
+
+    a = Array.open(
+        store / "order_implicit",
+        runtime_configuration=runtime_configuration(order=runtime_read_order),
+    )
     read_data = a[:, :]
     assert np.array_equal(data, read_data)
-    assert read_data.flags["C_CONTIGUOUS"]
-    assert not read_data.flags["F_CONTIGUOUS"]
+
+    if runtime_read_order == "F":
+        assert read_data.flags["F_CONTIGUOUS"]
+        assert not read_data.flags["C_CONTIGUOUS"]
+    else:
+        assert not read_data.flags["F_CONTIGUOUS"]
+        assert read_data.flags["C_CONTIGUOUS"]
 
 
 def test_open(store: Store):

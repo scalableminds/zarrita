@@ -160,6 +160,7 @@ class _ShardBuilder(_ShardProxy):
                 maybe_value = shard_dict.get(chunk_coords, None)
                 if maybe_value is not None:
                     obj.append(chunk_coords, maybe_value)
+                    break
         return obj
 
     @classmethod
@@ -411,7 +412,6 @@ class ShardingCodec(ArrayBytesCodec):
                 chunk_array = np.empty(
                     chunk_shape,
                     dtype=array_metadata.dtype,
-                    order=array_metadata.runtime_configuration.order,
                 )
                 chunk_array.fill(array_metadata.fill_value)
                 chunk_array[chunk_selection] = shard_array[out_selection]
@@ -486,13 +486,10 @@ class ShardingCodec(ArrayBytesCodec):
                     chunk_array = np.empty(
                         chunk_shape,
                         dtype=array_metadata.dtype,
-                        order=array_metadata.runtime_configuration.order,
                     )
                     chunk_array.fill(array_metadata.fill_value)
                 else:
-                    chunk_array = tmp.copy(
-                        order=array_metadata.runtime_configuration.order
-                    )  # make a writable copy
+                    chunk_array = tmp.copy()  # make a writable copy
                 chunk_array[chunk_selection] = shard_array[out_selection]
 
             if not np.array_equiv(chunk_array, array_metadata.fill_value):
@@ -566,11 +563,9 @@ class ShardingCodec(ArrayBytesCodec):
     async def _load_shard_index(
         self, value_handle: ValueHandle, chunks_per_shard: ChunkCoords
     ) -> _ShardIndex:
-        # print("load_shard_index")
         index_bytes = await value_handle[
             -_ShardIndex.index_byte_length(chunks_per_shard) :
         ].tobytes()
-        assert isinstance(index_bytes, bytes), index_bytes
         if index_bytes is not None:
             return _ShardIndex.from_bytes(index_bytes, chunks_per_shard)
         else:
