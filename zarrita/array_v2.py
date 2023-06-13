@@ -200,6 +200,14 @@ class ArrayV2:
         return len(self.metadata.shape)
 
     @property
+    def shape(self) -> ChunkCoords:
+        return self.metadata.shape
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self.metadata.dtype
+
+    @property
     def async_(self) -> _AsyncArrayProxy:
         return _AsyncArrayProxy(self)
 

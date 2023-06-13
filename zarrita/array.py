@@ -312,6 +312,14 @@ class Array:
         return len(self.metadata.shape)
 
     @property
+    def shape(self) -> ChunkCoords:
+        return self.metadata.shape
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self.metadata.dtype
+
+    @property
     def _core_metadata(self) -> CoreArrayMetadata:
         return CoreArrayMetadata(
             shape=self.metadata.shape,

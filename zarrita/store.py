@@ -203,9 +203,7 @@ class RemoteStore(Store):
         assert isinstance(url, str)
 
         # instantiate file system
-        fs, root = fsspec.core.url_to_fs(
-            url, auto_mkdir=True, asynchronous=True, **storage_options
-        )
+        fs, root = fsspec.core.url_to_fs(url, asynchronous=True, **storage_options)
         assert fs.__class__.async_impl, "FileSystem needs to support async operations."
         self.fs = fs
         self.root = root.rstrip("/")
