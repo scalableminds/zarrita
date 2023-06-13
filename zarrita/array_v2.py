@@ -2,6 +2,7 @@ import asyncio
 import json
 from typing import Any, Dict, List, Literal, Optional, Union
 
+import attr
 import numcodecs
 import numpy as np
 from attr import asdict, frozen
@@ -14,10 +15,11 @@ from zarrita.common import (
     ChunkCoords,
     Selection,
     SliceSelection,
+    concurrent_map,
     make_cattr,
     to_thread,
 )
-from zarrita.indexing import BasicIndexer, is_total_slice
+from zarrita.indexing import BasicIndexer, all_chunk_coords, is_total_slice
 from zarrita.metadata import ArrayV2Metadata
 from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
@@ -27,6 +29,15 @@ from zarrita.value_handle import (
     NoneValueHandle,
     ValueHandle,
 )
+
+
+def _json_convert(o):
+    if isinstance(o, np.dtype):
+        if o.fields is None:
+            return o.str
+        else:
+            return o.descr
+    raise TypeError
 
 
 @frozen
@@ -170,18 +181,10 @@ class ArrayV2:
         return out
 
     async def _save_metadata(self) -> None:
-        def convert(o):
-            if isinstance(o, np.dtype):
-                if o.fields is None:
-                    return o.str
-                else:
-                    return o.descr
-            raise TypeError
-
         self._validate_metadata()
 
         await (self.store_path / ZARRAY_JSON).set_async(
-            json.dumps(asdict(self.metadata), default=convert).encode(),
+            json.dumps(asdict(self.metadata), default=_json_convert).encode(),
         )
         if self.attributes is not None and len(self.attributes) > 0:
             await (self.store_path / ZATTRS_JSON).set_async(
@@ -229,11 +232,12 @@ class ArrayV2:
         )
 
         # reading chunks and decoding them
-        await asyncio.gather(
-            *[
-                self._read_chunk(chunk_coords, chunk_selection, out_selection, out)
+        await concurrent_map(
+            [
+                (chunk_coords, chunk_selection, out_selection, out)
                 for chunk_coords, chunk_selection, out_selection in indexer
-            ]
+            ],
+            self._read_chunk,
         )
 
         if out.shape:
@@ -317,9 +321,9 @@ class ArrayV2:
                 value = value.astype(self.metadata.dtype, order="A")
 
         # merging with existing data and encoding chunks
-        await asyncio.gather(
-            *[
-                self._write_chunk(
+        await concurrent_map(
+            [
+                (
                     value,
                     chunk_shape,
                     chunk_coords,
@@ -327,7 +331,8 @@ class ArrayV2:
                     out_selection,
                 )
                 for chunk_coords, chunk_selection, out_selection in indexer
-            ]
+            ],
+            self._write_chunk,
         )
 
     async def _write_chunk(
@@ -417,6 +422,35 @@ class ArrayV2:
             map(str, chunk_coords)
         )
         return "0" if chunk_identifier == "" else chunk_identifier
+
+    async def reshape_async(self, new_shape: ChunkCoords) -> "ArrayV2":
+        assert len(new_shape) == len(self.metadata.shape)
+        new_metadata = attr.evolve(self.metadata, shape=new_shape)
+
+        # Remove all chunks outside of the new shape
+        chunk_shape = self.metadata.chunks
+        old_chunk_coords = set(all_chunk_coords(self.metadata.shape, chunk_shape))
+        new_chunk_coords = set(all_chunk_coords(new_shape, chunk_shape))
+
+        async def _delete_key(key: str) -> None:
+            await (self.store_path / key).delete_async()
+
+        await concurrent_map(
+            [
+                (self._encode_chunk_key(chunk_coords),)
+                for chunk_coords in old_chunk_coords.difference(new_chunk_coords)
+            ],
+            _delete_key,
+        )
+
+        # Write new metadata
+        await (self.store_path / ZARRAY_JSON).set_async(
+            json.dumps(asdict(new_metadata), default=_json_convert).encode(),
+        )
+        return attr.evolve(self, metadata=new_metadata)
+
+    def reshape(self, new_shape: ChunkCoords) -> "ArrayV2":
+        return sync(self.reshape_async(new_shape))
 
     def __repr__(self):
         return f"<Array_v2 {self.store_path}>"

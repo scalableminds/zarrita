@@ -237,7 +237,7 @@ class RemoteStore(Store):
                 f.seek(byte_range[0])
                 f.write(value)
         else:
-            await self.fs._write_bytes(path, value)
+            await self.fs._pipe_file(path, value)
 
     async def delete_async(self, key: str) -> None:
         path = _dereference_path(self.root, key)
