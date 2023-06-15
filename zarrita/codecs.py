@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Awaitable, Callable, List, Literal, Tuple, Union
 
+import numcodecs
 import numpy as np
 from attr import asdict, frozen
 from numcodecs.blosc import Blosc
@@ -30,6 +31,9 @@ from zarrita.value_handle import (
 
 if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
+
+# See https://zarr.readthedocs.io/en/stable/tutorial.html#configuring-blosc
+numcodecs.blosc.use_threads = False
 
 
 async def _needs_array(
@@ -231,25 +235,24 @@ class BytesBytesCodec(Codec):
 @frozen
 class BloscCodec(BytesBytesCodec):
     configuration: BloscCodecConfigurationMetadata
+    blosc_codec: Blosc
 
     @classmethod
     def from_metadata(cls, codec_metadata: BloscCodecMetadata) -> "BloscCodec":
-        return cls(
-            configuration=codec_metadata.configuration,
-        )
-
-    def _get_blosc_codec(self):
-        config_dict = asdict(self.configuration)
+        config_dict = asdict(codec_metadata.configuration)
         map_shuffle_str_to_int = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
         config_dict["shuffle"] = map_shuffle_str_to_int[config_dict["shuffle"]]
-        return Blosc.from_config(config_dict)
+        return cls(
+            configuration=codec_metadata.configuration,
+            blosc_codec=Blosc.from_config(config_dict),
+        )
 
     async def inner_decode(
         self,
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
-        return await to_thread(self._get_blosc_codec().decode, chunk_bytes)
+        return await to_thread(self.blosc_codec.decode, chunk_bytes)
 
     async def inner_encode(
         self,
@@ -257,7 +260,7 @@ class BloscCodec(BytesBytesCodec):
         array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
         chunk_array = np.frombuffer(chunk_bytes, dtype=array_metadata.dtype)
-        return await to_thread(self._get_blosc_codec().encode, chunk_array)
+        return await to_thread(self.blosc_codec.encode, chunk_array)
 
 
 @frozen
