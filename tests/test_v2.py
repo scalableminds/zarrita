@@ -358,3 +358,29 @@ def test_exists_ok(store: Store):
         dtype=np.dtype("uint8"),
         exists_ok=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_resize(store: Store):
+    data = np.zeros((16, 18), dtype="uint16")
+
+    a = await ArrayV2.create_async(
+        store / "resize",
+        shape=data.shape,
+        chunks=(10, 10),
+        dtype=data.dtype,
+        fill_value=1,
+    )
+
+    await a.async_[:16, :18].set(data)
+    assert await store.get_async("resize/0.0") is not None
+    assert await store.get_async("resize/0.1") is not None
+    assert await store.get_async("resize/1.0") is not None
+    assert await store.get_async("resize/1.1") is not None
+
+    a = await a.resize_async((10, 12))
+    assert a.metadata.shape == (10, 12)
+    assert await store.get_async("resize/0.0") is not None
+    assert await store.get_async("resize/0.1") is not None
+    assert await store.get_async("resize/1.0") is None
+    assert await store.get_async("resize/1.1") is None

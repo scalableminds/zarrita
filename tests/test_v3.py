@@ -708,11 +708,11 @@ def test_invalid_metadata(store: Store):
 
 
 @pytest.mark.asyncio
-async def test_reshape(store: Store):
+async def test_resize(store: Store):
     data = np.zeros((16, 18), dtype="uint16")
 
     a = await Array.create_async(
-        store / "reshape",
+        store / "resize",
         shape=data.shape,
         chunk_shape=(10, 10),
         dtype=data.dtype,
@@ -721,17 +721,17 @@ async def test_reshape(store: Store):
     )
 
     await a.async_[:16, :18].set(data)
-    assert await store.get_async("reshape/0.0") is not None
-    assert await store.get_async("reshape/0.1") is not None
-    assert await store.get_async("reshape/1.0") is not None
-    assert await store.get_async("reshape/1.1") is not None
+    assert await store.get_async("resize/0.0") is not None
+    assert await store.get_async("resize/0.1") is not None
+    assert await store.get_async("resize/1.0") is not None
+    assert await store.get_async("resize/1.1") is not None
 
-    a = await a.reshape_async((10, 12))
+    a = await a.resize_async((10, 12))
     assert a.metadata.shape == (10, 12)
-    assert await store.get_async("reshape/0.0") is not None
-    assert await store.get_async("reshape/0.1") is not None
-    assert await store.get_async("reshape/1.0") is None
-    assert await store.get_async("reshape/1.1") is None
+    assert await store.get_async("resize/0.0") is not None
+    assert await store.get_async("resize/0.1") is not None
+    assert await store.get_async("resize/1.0") is None
+    assert await store.get_async("resize/1.1") is None
 
 
 def test_exists_ok(store: Store):

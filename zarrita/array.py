@@ -485,6 +485,7 @@ class Array:
 
         elif len(self.codecs) == 1 and isinstance(self.codecs[0], ShardingCodec):
             sharding_codec = self.codecs[0]
+            print("encode_partial", chunk_coords, chunk_selection, repr(self))
             chunk_value = await sharding_codec.encode_partial(
                 value_handle,
                 value[out_selection],
@@ -536,7 +537,7 @@ class Array:
 
         return encoded_chunk_value
 
-    async def reshape_async(self, new_shape: ChunkCoords) -> "Array":
+    async def resize_async(self, new_shape: ChunkCoords) -> "Array":
         assert len(new_shape) == len(self.metadata.shape)
         new_metadata = attr.evolve(self.metadata, shape=new_shape)
 
@@ -564,8 +565,8 @@ class Array:
         )
         return attr.evolve(self, metadata=new_metadata)
 
-    def reshape(self, new_shape: ChunkCoords) -> "Array":
-        return sync(self.reshape_async(new_shape))
+    def resize(self, new_shape: ChunkCoords) -> "Array":
+        return sync(self.resize_async(new_shape))
 
     def __repr__(self):
         return f"<Array {self.store_path} shape={self.shape} dtype={self.dtype}>"

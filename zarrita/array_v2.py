@@ -423,7 +423,7 @@ class ArrayV2:
         )
         return "0" if chunk_identifier == "" else chunk_identifier
 
-    async def reshape_async(self, new_shape: ChunkCoords) -> "ArrayV2":
+    async def resize_async(self, new_shape: ChunkCoords) -> "ArrayV2":
         assert len(new_shape) == len(self.metadata.shape)
         new_metadata = attr.evolve(self.metadata, shape=new_shape)
 
@@ -449,8 +449,8 @@ class ArrayV2:
         )
         return attr.evolve(self, metadata=new_metadata)
 
-    def reshape(self, new_shape: ChunkCoords) -> "ArrayV2":
-        return sync(self.reshape_async(new_shape))
+    def resize(self, new_shape: ChunkCoords) -> "ArrayV2":
+        return sync(self.resize_async(new_shape))
 
     def __repr__(self):
         return f"<Array_v2 {self.store_path} shape={self.shape} dtype={self.dtype}>"
