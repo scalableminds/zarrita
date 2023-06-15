@@ -2,8 +2,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Awaitable, Callable, List, Literal, Tuple, Union
 
 import numpy as np
-from attr import asdict, frozen
-from numcodecs.blosc import Blosc
+from attr import frozen
 from numcodecs.gzip import GZip
 
 from zarrita.common import BytesLike, to_thread
@@ -27,6 +26,9 @@ from zarrita.value_handle import (
     NoneValueHandle,
     ValueHandle,
 )
+
+from .blosc import compress as blosc_compress
+from .blosc import decompress as blosc_decompress
 
 if TYPE_CHECKING:
     from zarrita.array import CoreArrayMetadata
@@ -228,6 +230,38 @@ class BytesBytesCodec(Codec):
         pass
 
 
+# @frozen
+# class BloscCodec(BytesBytesCodec):
+#     configuration: BloscCodecConfigurationMetadata
+
+#     @classmethod
+#     def from_metadata(cls, codec_metadata: BloscCodecMetadata) -> "BloscCodec":
+#         return cls(
+#             configuration=codec_metadata.configuration,
+#         )
+
+#     def _get_blosc_codec(self):
+#         config_dict = asdict(self.configuration)
+#         map_shuffle_str_to_int = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
+#         config_dict["shuffle"] = map_shuffle_str_to_int[config_dict["shuffle"]]
+#         return Blosc.from_config(config_dict)
+
+#     async def inner_decode(
+#         self,
+#         chunk_bytes: bytes,
+#         _array_metadata: "CoreArrayMetadata",
+#     ) -> BytesLike:
+#         return await to_thread(self._get_blosc_codec().decode, chunk_bytes)
+
+#     async def inner_encode(
+#         self,
+#         chunk_bytes: bytes,
+#         array_metadata: "CoreArrayMetadata",
+#     ) -> BytesLike:
+#         chunk_array = np.frombuffer(chunk_bytes, dtype=array_metadata.dtype)
+#         return await to_thread(self._get_blosc_codec().encode, chunk_array)
+
+
 @frozen
 class BloscCodec(BytesBytesCodec):
     configuration: BloscCodecConfigurationMetadata
@@ -238,18 +272,12 @@ class BloscCodec(BytesBytesCodec):
             configuration=codec_metadata.configuration,
         )
 
-    def _get_blosc_codec(self):
-        config_dict = asdict(self.configuration)
-        map_shuffle_str_to_int = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
-        config_dict["shuffle"] = map_shuffle_str_to_int[config_dict["shuffle"]]
-        return Blosc.from_config(config_dict)
-
     async def inner_decode(
         self,
         chunk_bytes: bytes,
         _array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
-        return await to_thread(self._get_blosc_codec().decode, chunk_bytes)
+        return await to_thread(blosc_decompress, chunk_bytes)
 
     async def inner_encode(
         self,
@@ -257,7 +285,16 @@ class BloscCodec(BytesBytesCodec):
         array_metadata: "CoreArrayMetadata",
     ) -> BytesLike:
         chunk_array = np.frombuffer(chunk_bytes, dtype=array_metadata.dtype)
-        return await to_thread(self._get_blosc_codec().encode, chunk_array)
+        map_shuffle_str_to_int = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
+        shuffle = map_shuffle_str_to_int[self.configuration.shuffle]
+        return await to_thread(
+            blosc_compress,
+            chunk_array,
+            cname=self.configuration.cname.encode(),
+            clevel=self.configuration.clevel,
+            shuffle=shuffle,
+            blocksize=self.configuration.blocksize,
+        )
 
 
 @frozen
