@@ -485,7 +485,7 @@ class Array:
 
         elif len(self.codecs) == 1 and isinstance(self.codecs[0], ShardingCodec):
             sharding_codec = self.codecs[0]
-            print("encode_partial", chunk_coords, chunk_selection, repr(self))
+            # print("encode_partial", chunk_coords, chunk_selection, repr(self))
             chunk_value = await sharding_codec.encode_partial(
                 value_handle,
                 value[out_selection],

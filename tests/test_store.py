@@ -20,8 +20,8 @@ def test_make_store_path():
     # remote store
     store_path = make_store_path(RemoteStore("s3://bucket/test"))
     assert isinstance(store_path.store, RemoteStore)
-    assert isinstance(store_path.store.fs, S3FileSystem)
-    assert store_path.store.root == "bucket/test"
+    assert isinstance(store_path.store.make_fs()[0], S3FileSystem)
+    assert store_path.store.make_fs()[1] == "bucket/test"
 
     # path
     store_path = make_store_path(Path("testdata"))
@@ -31,8 +31,8 @@ def test_make_store_path():
     # upath
     store_path = make_store_path(UPath("s3://bucket/test"))
     assert isinstance(store_path.store, RemoteStore)
-    assert isinstance(store_path.store.fs, S3FileSystem)
-    assert store_path.store.root == "bucket/test"
+    assert isinstance(store_path.store.make_fs()[0], S3FileSystem)
+    assert store_path.store.make_fs()[1] == "bucket/test"
 
     # store path
     store_path = make_store_path(LocalStore("testdata") / "test")

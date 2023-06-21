@@ -1,32 +1,38 @@
+from __future__ import annotations
+
 import asyncio
 import io
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import fsspec
 from fsspec.asyn import AsyncFileSystem
 
 from zarrita.common import BytesLike, to_thread
 
+if TYPE_CHECKING:
+    from upath import UPath
+
 
 def _dereference_path(root: str, path: str) -> str:
     assert isinstance(root, str)
     assert isinstance(path, str)
+    root = root.rstrip("/")
     path = f"{root}/{path}" if root != "" else path
     path = path.rstrip("/")
     return path
 
 
 class StorePath:
-    store: "Store"
+    store: Store
     path: str
 
-    def __init__(self, store: "Store", path: Optional[str] = None):
+    def __init__(self, store: Store, path: Optional[str] = None):
         self.store = store
         self.path = path or ""
 
     @classmethod
-    def from_path(cls, pth: "Path") -> "StorePath":
+    def from_path(cls, pth: Path) -> StorePath:
         return cls(Store.from_path(pth))
 
     async def get_async(
@@ -45,7 +51,7 @@ class StorePath:
     async def exists_async(self) -> bool:
         return await self.store.exists_async(self.path)
 
-    def __truediv__(self, other: str) -> "StorePath":
+    def __truediv__(self, other: str) -> StorePath:
         return self.__class__(self.store, _dereference_path(self.path, other))
 
     def __str__(self) -> str:
@@ -57,7 +63,7 @@ class StorePath:
 
 class Store:
     @classmethod
-    def from_path(cls, pth: "Path") -> "Store":
+    def from_path(cls, pth: Path) -> Store:
         try:
             from upath import UPath
 
@@ -196,29 +202,46 @@ class LocalStore(Store):
 
 
 class RemoteStore(Store):
-    fs: AsyncFileSystem
-    root: str
+    root: UPath
 
-    def __init__(self, url: str, **storage_options):
-        assert isinstance(url, str)
+    def __init__(self, url: Union[UPath, str], **storage_options: Dict[str, Any]):
+        from upath import UPath
 
-        # instantiate file system
-        fs, root = fsspec.core.url_to_fs(url, asynchronous=True, **storage_options)
+        if isinstance(url, str):
+            self.root = UPath(url, **storage_options)
+        else:
+            assert len(storage_options) == 0, (
+                "If constructed with a UPath object, no additional "
+                + "storage_options are allowed."
+            )
+            self.root = url.rstrip("/")
+        # test instantiate file system
+        fs, _ = fsspec.core.url_to_fs(
+            str(self.root), asynchronous=True, **self.root._kwargs
+        )
         assert fs.__class__.async_impl, "FileSystem needs to support async operations."
-        self.fs = fs
-        self.root = root.rstrip("/")
+
+    def make_fs(self) -> Tuple[AsyncFileSystem, str]:
+        storage_options = self.root._kwargs.copy()
+        storage_options.pop("_url", None)
+        fs, root = fsspec.core.url_to_fs(
+            str(self.root), asynchronous=True, **self.root._kwargs
+        )
+        assert fs.__class__.async_impl, "FileSystem needs to support async operations."
+        return fs, root
 
     async def get_async(
         self, key: str, byte_range: Optional[Tuple[int, int]] = None
     ) -> Optional[BytesLike]:
         assert isinstance(key, str)
-        path = _dereference_path(self.root, key)
+        fs, root = self.make_fs()
+        path = _dereference_path(root, key)
 
         try:
             value = await (
-                self.fs._cat_file(path, start=byte_range[0], end=byte_range[1])
+                fs._cat_file(path, start=byte_range[0], end=byte_range[1])
                 if byte_range
-                else self.fs._cat_file(path)
+                else fs._cat_file(path)
             )
         except (FileNotFoundError, IsADirectoryError, NotADirectoryError):
             return None
@@ -229,32 +252,30 @@ class RemoteStore(Store):
         self, key: str, value: BytesLike, byte_range: Optional[Tuple[int, int]] = None
     ) -> None:
         assert isinstance(key, str)
-        path = _dereference_path(self.root, key)
+        fs, root = self.make_fs()
+        path = _dereference_path(root, key)
 
         # write data
         if byte_range:
-            with self.fs._open(path, "r+b") as f:
+            with fs._open(path, "r+b") as f:
                 f.seek(byte_range[0])
                 f.write(value)
         else:
-            await self.fs._pipe_file(path, value)
+            await fs._pipe_file(path, value)
 
     async def delete_async(self, key: str) -> None:
-        path = _dereference_path(self.root, key)
-        if await self.fs._exists(path):
-            await self.fs._rm(path)
+        fs, root = self.make_fs()
+        path = _dereference_path(root, key)
+        if await fs._exists(path):
+            await fs._rm(path)
 
     async def exists_async(self, key: str) -> bool:
-        path = _dereference_path(self.root, key)
-        return await self.fs._exists(path)
+        fs, root = self.make_fs()
+        path = _dereference_path(root, key)
+        return await fs._exists(path)
 
     def __str__(self) -> str:
-        protocol = (
-            self.fs.protocol[0]
-            if isinstance(self.fs.protocol, list)
-            else self.fs.protocol
-        )
-        return f"{protocol}://{self.root}"
+        return str(self.root)
 
     def __repr__(self) -> str:
         return f"RemoteStore({repr(str(self))})"

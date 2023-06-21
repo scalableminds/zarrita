@@ -17,6 +17,8 @@
 - [ ] attrs -> dataclasses
 - [x] test stores incl upath
 - [ ] docstrings
+- [ ] partial write for uncompressed shards
+- [ ] coalesce byte ranges in store
 
 ## Non-priority
 
