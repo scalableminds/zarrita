@@ -15,6 +15,7 @@ from zarrita import Array, LocalStore, Store, codecs
 from zarrita.array import runtime_configuration
 
 TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
+CHUNK_SIZE = 32
 
 TESTDATA: List[Tuple[str, np.ndarray]] = [
     (
@@ -63,10 +64,16 @@ def test_zarrita_sharding(store: Store, layer_name: str, testdata: np.ndarray):
         fill_value=0,
         codecs=[
             codecs.sharding_codec(
-                (32, 32, 32),
+                (CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.blosc_codec(),
+                    codecs.blosc_codec(
+                        cname="zstd",
+                        clevel=5,
+                        shuffle="noshuffle",
+                        blocksize=0,
+                        typesize=testdata.dtype.itemsize,
+                    ),
                 ],
             )
         ],
@@ -93,7 +100,7 @@ def test_zarrita_sharding(store: Store, layer_name: str, testdata: np.ndarray):
 
 
 @pytest.mark.parametrize("layer_name,testdata", TESTDATA)
-@pytest.mark.parametrize("codec", ["lz4", "lz4hc"])
+@pytest.mark.parametrize("codec", ["lz4"])
 def test_wkw(folder: Path, layer_name: str, testdata: np.ndarray, codec: str):
     print("")
     path = folder / "l4_sample_wkw" / codec / layer_name
@@ -105,7 +112,8 @@ def test_wkw(folder: Path, layer_name: str, testdata: np.ndarray, codec: str):
             block_type=wkw.Header.BLOCK_TYPE_LZ4
             if codec == "lz4"
             else wkw.Header.BLOCK_TYPE_LZ4HC,
-            file_len=TEST_SIZE // 32,
+            file_len=TEST_SIZE // CHUNK_SIZE,
+            block_len=CHUNK_SIZE,
         ),
     ) as ds:
         start = default_timer()
@@ -130,9 +138,14 @@ def test_zarr(folder: Path, layer_name: str, testdata: np.ndarray):
     path = folder / "l4_sample_zarr" / layer_name
     a = zarr.create(
         shape=testdata.shape,
-        chunks=(32, 32, 32),
+        chunks=(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
         dtype=testdata.dtype,
-        compressor=Blosc(cname="zstd", clevel=5, shuffle=Blosc.BITSHUFFLE),
+        compressor=Blosc(
+            cname="zstd",
+            clevel=5,
+            shuffle=Blosc.NOSHUFFLE,
+            blocksize=0,
+        ),
         fill_value=0,
         order="F",
         store=str(path),

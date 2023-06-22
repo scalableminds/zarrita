@@ -116,6 +116,7 @@ class BloscCodecConfigurationMetadata:
     clevel: int = 5
     shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle"
     blocksize: int = 0
+    typesize: int = 0
 
 
 @frozen

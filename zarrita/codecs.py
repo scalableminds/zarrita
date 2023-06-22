@@ -240,6 +240,7 @@ class BloscCodec(BytesBytesCodec):
     @classmethod
     def from_metadata(cls, codec_metadata: BloscCodecMetadata) -> "BloscCodec":
         config_dict = asdict(codec_metadata.configuration)
+        config_dict.pop("typesize", None)
         map_shuffle_str_to_int = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
         config_dict["shuffle"] = map_shuffle_str_to_int[config_dict["shuffle"]]
         return cls(
@@ -382,10 +383,15 @@ def blosc_codec(
     clevel: int = 5,
     shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle",
     blocksize: int = 0,
+    typesize: int = 0,
 ) -> BloscCodecMetadata:
     return BloscCodecMetadata(
         configuration=BloscCodecConfigurationMetadata(
-            cname=cname, clevel=clevel, shuffle=shuffle, blocksize=blocksize
+            cname=cname,
+            clevel=clevel,
+            shuffle=shuffle,
+            blocksize=blocksize,
+            typesize=typesize,
         )
     )
 
