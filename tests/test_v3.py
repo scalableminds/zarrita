@@ -45,7 +45,7 @@ def test_sharding(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.blosc_codec("lz4"),
+                    codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
         ],
@@ -72,7 +72,7 @@ def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.blosc_codec("lz4"),
+                    codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
         ],
@@ -102,7 +102,7 @@ def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.blosc_codec("lz4"),
+                    codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
         ],
@@ -126,7 +126,7 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.blosc_codec("lz4"),
+                    codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
         ],
@@ -277,7 +277,7 @@ def test_open_sharding(store: Store):
         codecs=[
             codecs.sharding_codec(
                 (8, 8),
-                [codecs.transpose_codec("F"), codecs.blosc_codec()],
+                [codecs.transpose_codec("F"), codecs.blosc_codec(typesize=4)],
             )
         ],
     )
@@ -396,7 +396,10 @@ def test_write_partial_sharded_chunks(store: Store):
         dtype=data.dtype,
         fill_value=1,
         codecs=[
-            codecs.sharding_codec(chunk_shape=(10, 10), codecs=[codecs.blosc_codec()])
+            codecs.sharding_codec(
+                chunk_shape=(10, 10),
+                codecs=[codecs.blosc_codec(typesize=data.dtype.itemsize)],
+            )
         ],
     )
     a[0:16, 0:16] = data

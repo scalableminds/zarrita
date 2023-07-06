@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from typing import Iterator, List, Mapping, NamedTuple, Optional, Set, Tuple
 
 import numpy as np
@@ -20,6 +22,7 @@ from zarrita.indexing import (
 )
 from zarrita.metadata import (
     CoreArrayMetadata,
+    DataType,
     ShardingCodecConfigurationMetadata,
     ShardingCodecMetadata,
 )
@@ -150,7 +153,7 @@ class _ShardBuilder(_ShardProxy):
         cls,
         chunks_per_shard: ChunkCoords,
         tombstones: Set[ChunkCoords],
-        *shard_dicts: Mapping[ChunkCoords, BytesLike]
+        *shard_dicts: Mapping[ChunkCoords, BytesLike],
     ) -> "_ShardBuilder":
         obj = cls.create_empty(chunks_per_shard)
         for chunk_coords in morton_order_iter(chunks_per_shard):
@@ -189,10 +192,14 @@ class ShardingCodec(ArrayBytesCodec):
     codecs: List[Codec]
 
     @classmethod
-    def from_metadata(cls, codec_metadata: ShardingCodecMetadata) -> "ShardingCodec":
+    def from_metadata(
+        cls, codec_metadata: ShardingCodecMetadata, data_type: DataType
+    ) -> "ShardingCodec":
         return cls(
             configuration=codec_metadata.configuration,
-            codecs=Codec.codecs_from_metadata(codec_metadata.configuration.codecs),
+            codecs=Codec.codecs_from_metadata(
+                codec_metadata.configuration.codecs, data_type
+            ),
         )
 
     async def inner_decode(

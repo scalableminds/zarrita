@@ -1,6 +1,18 @@
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Awaitable, Callable, List, Literal, Tuple, Union
+from __future__ import annotations
 
+from abc import ABC, abstractmethod
+from typing import (
+    TYPE_CHECKING,
+    Awaitable,
+    Callable,
+    List,
+    Literal,
+    Optional,
+    Tuple,
+    Union,
+)
+
+import attr
 import numcodecs
 import numpy as np
 from attr import asdict, frozen
@@ -12,6 +24,7 @@ from zarrita.metadata import (
     BloscCodecConfigurationMetadata,
     BloscCodecMetadata,
     CodecMetadata,
+    DataType,
     EndianCodecConfigurationMetadata,
     EndianCodecMetadata,
     GzipCodecConfigurationMetadata,
@@ -20,7 +33,6 @@ from zarrita.metadata import (
     ShardingCodecMetadata,
     TransposeCodecConfigurationMetadata,
     TransposeCodecMetadata,
-    data_type_to_numpy,
 )
 from zarrita.value_handle import (
     ArrayValueHandle,
@@ -107,11 +119,13 @@ class Codec(ABC):
         pass
 
     @staticmethod
-    def codecs_from_metadata(codecs_metadata: List["CodecMetadata"]) -> List["Codec"]:
+    def codecs_from_metadata(
+        codecs_metadata: Optional[List["CodecMetadata"]], data_type: DataType
+    ) -> List["Codec"]:
         out: List[Codec] = []
-        for codec_metadata in codecs_metadata:
+        for codec_metadata in codecs_metadata or []:
             if codec_metadata.name == "blosc":
-                out.append(BloscCodec.from_metadata(codec_metadata))
+                out.append(BloscCodec.from_metadata(codec_metadata, data_type))
             elif codec_metadata.name == "gzip":
                 out.append(GzipCodec.from_metadata(codec_metadata))
             elif codec_metadata.name == "transpose":
@@ -121,7 +135,7 @@ class Codec(ABC):
             elif codec_metadata.name == "sharding_indexed":
                 from zarrita.sharding import ShardingCodec
 
-                out.append(ShardingCodec.from_metadata(codec_metadata))
+                out.append(ShardingCodec.from_metadata(codec_metadata, data_type))
             else:
                 raise RuntimeError(f"Unsupported codec: {codec_metadata}")
         return out
@@ -238,13 +252,18 @@ class BloscCodec(BytesBytesCodec):
     blosc_codec: Blosc
 
     @classmethod
-    def from_metadata(cls, codec_metadata: BloscCodecMetadata) -> "BloscCodec":
+    def from_metadata(
+        cls, codec_metadata: BloscCodecMetadata, data_type: DataType
+    ) -> "BloscCodec":
+        configuration = codec_metadata.configuration
+        if configuration.typesize == 0:
+            configuration = attr.evolve(configuration, typesize=data_type.byte_count)
         config_dict = asdict(codec_metadata.configuration)
         config_dict.pop("typesize", None)
         map_shuffle_str_to_int = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
         config_dict["shuffle"] = map_shuffle_str_to_int[config_dict["shuffle"]]
         return cls(
-            configuration=codec_metadata.configuration,
+            configuration=configuration,
             blosc_codec=Blosc.from_config(config_dict),
         )
 
@@ -293,7 +312,7 @@ class EndianCodec(ArrayBytesCodec):
             prefix = "<"
         else:
             prefix = ">"
-        dtype = np.dtype(f"{prefix}{data_type_to_numpy[array_metadata.data_type]}")
+        dtype = np.dtype(f"{prefix}{array_metadata.data_type.to_numpy_shortname()}")
         chunk_array = np.frombuffer(chunk_bytes, dtype)
         return chunk_array
 
@@ -379,11 +398,11 @@ class GzipCodec(BytesBytesCodec):
 
 
 def blosc_codec(
+    typesize: int,
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd",
     clevel: int = 5,
     shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle",
     blocksize: int = 0,
-    typesize: int = 0,
 ) -> BloscCodecMetadata:
     return BloscCodecMetadata(
         configuration=BloscCodecConfigurationMetadata(

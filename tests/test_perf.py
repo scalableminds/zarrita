@@ -121,7 +121,7 @@ def test_wkw(folder: Path, layer_name: str, testdata: np.ndarray, codec: str):
             block_type=wkw.Header.BLOCK_TYPE_LZ4
             if codec == "lz4"
             else wkw.Header.BLOCK_TYPE_LZ4HC,
-            file_len=512 // CHUNK_SIZE,
+            file_len=TEST_SIZE // CHUNK_SIZE,
             block_len=CHUNK_SIZE,
         ),
     ) as ds:

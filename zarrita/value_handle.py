@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from abc import abstractmethod
 from typing import Optional, Tuple
 
@@ -14,12 +16,12 @@ class ValueHandle:
     @abstractmethod
     async def set_async(
         self,
-        value: "ValueHandle",
+        value: ValueHandle,
     ):
         pass
 
     @abstractmethod
-    def __getitem__(self, selection: slice) -> "ValueHandle":
+    def __getitem__(self, selection: slice) -> ValueHandle:
         pass
 
     @abstractmethod
@@ -34,10 +36,10 @@ class ValueHandle:
 
 
 class FileValueHandle(ValueHandle):
-    store_path: "StorePath"
+    store_path: StorePath
     selection: Optional[slice] = None
 
-    def __init__(self, store_path: "StorePath"):
+    def __init__(self, store_path: StorePath):
         super().__init__()
         self.store_path = store_path
 
@@ -86,7 +88,7 @@ class BufferValueHandle(ValueHandle):
         assert buf is not None
         self.buf = buf
 
-    def __getitem__(self, selection: slice) -> "ValueHandle":
+    def __getitem__(self, selection: slice) -> ValueHandle:
         return BufferValueHandle(self.buf[selection])
 
     async def tobytes(self) -> Optional[bytes]:
@@ -113,7 +115,7 @@ class ArrayValueHandle(ValueHandle):
         assert array is not None
         self.array = array
 
-    def __getitem__(self, selection: slice) -> "ValueHandle":
+    def __getitem__(self, selection: slice) -> ValueHandle:
         return ArrayValueHandle(self.array[selection])
 
     async def tobytes(self) -> Optional[bytes]:
@@ -132,7 +134,7 @@ class NoneValueHandle(ValueHandle):
     async def set_async(self, value: ValueHandle):
         raise NotImplementedError
 
-    def __getitem__(self, _selection: slice) -> "ValueHandle":
+    def __getitem__(self, _selection: slice) -> ValueHandle:
         return self
 
     async def tobytes(self) -> Optional[bytes]:

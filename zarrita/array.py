@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
 from warnings import warn
@@ -144,7 +146,7 @@ class Array:
             metadata=metadata,
             store_path=store_path,
             runtime_configuration=runtime_configuration or ArrayRuntimeConfiguration(),
-            codecs=Codec.codecs_from_metadata(metadata.codecs),
+            codecs=Codec.codecs_from_metadata(metadata.codecs, data_type),
         )
 
         await array._save_metadata()
@@ -220,7 +222,7 @@ class Array:
             metadata=metadata,
             store_path=store_path,
             runtime_configuration=runtime_configuration,
-            codecs=Codec.codecs_from_metadata(metadata.codecs),
+            codecs=Codec.codecs_from_metadata(metadata.codecs, metadata.data_type),
         )
         out._validate_metadata()
         return out
@@ -296,11 +298,8 @@ class Array:
             prev_codec = codec
 
         if (
-            any(
-                codec_metadata.name == "sharding_indexed"
-                for codec_metadata in self.metadata.codecs
-            )
-            and len(self.metadata.codecs) > 1
+            any(isinstance(codec, ShardingCodec) for codec in self.codecs)
+            and len(self.codecs) > 1
         ):
             warn(
                 "Combining a `sharding_indexed` codec disables partial reads and "

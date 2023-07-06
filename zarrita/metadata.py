@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
 
@@ -23,6 +25,39 @@ class DataType(Enum):
     float32 = "float32"
     float64 = "float64"
 
+    @property
+    def byte_count(self) -> int:
+        data_type_byte_counts = {
+            DataType.bool: 1,
+            DataType.int8: 1,
+            DataType.int16: 2,
+            DataType.int32: 4,
+            DataType.int64: 8,
+            DataType.uint8: 1,
+            DataType.uint16: 2,
+            DataType.uint32: 4,
+            DataType.uint64: 8,
+            DataType.float32: 4,
+            DataType.float64: 8,
+        }
+        return data_type_byte_counts[self]
+
+    def to_numpy_shortname(self) -> str:
+        data_type_to_numpy = {
+            DataType.bool: "bool",
+            DataType.int8: "i1",
+            DataType.int16: "i2",
+            DataType.int32: "i4",
+            DataType.int64: "i8",
+            DataType.uint8: "u1",
+            DataType.uint16: "u2",
+            DataType.uint32: "u4",
+            DataType.uint64: "u8",
+            DataType.float32: "f4",
+            DataType.float64: "f8",
+        }
+        return data_type_to_numpy[self]
+
 
 dtype_to_data_type = {
     "bool": "bool",
@@ -36,20 +71,6 @@ dtype_to_data_type = {
     "<u8": "uint64",
     "<f4": "float32",
     "<f8": "float64",
-}
-
-data_type_to_numpy = {
-    DataType.bool: "bool",
-    DataType.int8: "i1",
-    DataType.int16: "i2",
-    DataType.int32: "i4",
-    DataType.int64: "i8",
-    DataType.uint8: "u1",
-    DataType.uint16: "u2",
-    DataType.uint32: "u4",
-    DataType.uint64: "u8",
-    DataType.float32: "f4",
-    DataType.float64: "f8",
 }
 
 
@@ -112,11 +133,11 @@ ChunkKeyEncodingMetadata = Union[
 
 @frozen
 class BloscCodecConfigurationMetadata:
+    typesize: int
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
     clevel: int = 5
     shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle"
     blocksize: int = 0
-    typesize: int = 0
 
 
 @frozen
@@ -200,7 +221,7 @@ class ArrayMetadata:
     chunk_key_encoding: ChunkKeyEncodingMetadata
     fill_value: Any
     attributes: Dict[str, Any] = field(factory=dict)
-    codecs: List[CodecMetadata] = field(factory=list)
+    codecs: Optional[List[CodecMetadata]] = None
     dimension_names: Optional[Tuple[str, ...]] = None
     zarr_format: Literal[3] = 3
     node_type: Literal["array"] = "array"
