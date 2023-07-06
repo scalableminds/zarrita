@@ -16,6 +16,11 @@ from zarrita.array import runtime_configuration
 
 TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
 CHUNK_SIZE = 32
+PARTIAL_SELECTION = (
+    slice(128, 128 + 32),
+    slice(128, 128 + 32),
+    slice(128, 128 + 32),
+)
 
 TESTDATA: List[Tuple[str, np.ndarray]] = [
     (
@@ -59,7 +64,7 @@ def test_zarrita_sharding(store: Store, layer_name: str, testdata: np.ndarray):
     a = Array.create(
         store / "l4_sample_zarrita_sharding" / layer_name,
         shape=testdata.shape,
-        chunk_shape=(1024, 1024, 1024),
+        chunk_shape=(512, 512, 512),
         dtype=testdata.dtype,
         fill_value=0,
         codecs=[
@@ -84,19 +89,23 @@ def test_zarrita_sharding(store: Store, layer_name: str, testdata: np.ndarray):
     a[:, :, :] = testdata
     print(f"  zarrita WRITE {layer_name} - {default_timer() - start:.2f}s")
 
-    start = default_timer()
-    readback_data = a[
-        0 : testdata.shape[0], 0 : testdata.shape[1], 0 : testdata.shape[2]
-    ]
-    print(f"  zarrita READ {layer_name} - {default_timer() - start:.2f}s")
-
     path = Path("testdata") / "l4_sample_zarrita_sharding" / layer_name
     print(
         f"  zarrita STORAGE {folder_disk_usage(path)/1000000:,.2f} MB "
         + f"- {folder_inodes(path)} inodes"
     )
 
+    start = default_timer()
+    readback_data = a[
+        0 : testdata.shape[0], 0 : testdata.shape[1], 0 : testdata.shape[2]
+    ]
+    print(f"  zarrita READ {layer_name} - {default_timer() - start:.2f}s")
     assert np.array_equal(readback_data, testdata)
+
+    start = default_timer()
+    partial_data = a[PARTIAL_SELECTION]
+    print(f"  zarrita PARTIAL READ {layer_name} - {default_timer() - start:.5f}s")
+    assert np.array_equal(partial_data, testdata[PARTIAL_SELECTION])
 
 
 @pytest.mark.parametrize("layer_name,testdata", TESTDATA)
@@ -112,7 +121,7 @@ def test_wkw(folder: Path, layer_name: str, testdata: np.ndarray, codec: str):
             block_type=wkw.Header.BLOCK_TYPE_LZ4
             if codec == "lz4"
             else wkw.Header.BLOCK_TYPE_LZ4HC,
-            file_len=TEST_SIZE // CHUNK_SIZE,
+            file_len=512 // CHUNK_SIZE,
             block_len=CHUNK_SIZE,
         ),
     ) as ds:
@@ -120,16 +129,23 @@ def test_wkw(folder: Path, layer_name: str, testdata: np.ndarray, codec: str):
         ds.write((0, 0, 0), testdata)
         print(f"  wkw WRITE {layer_name} - {default_timer() - start:.2f}s")
 
-        start = default_timer()
-        readback_data = ds.read((0, 0, 0), testdata.shape)[0]
-        print(f"  wkw READ {layer_name} - {default_timer() - start:.2f}s")
-
         print(
             f"  wkw STORAGE {folder_disk_usage(path)/1000000:,.2f} MB - "
             + f"{folder_inodes(path)} inodes"
         )
 
+        start = default_timer()
+        readback_data = ds.read((0, 0, 0), testdata.shape)[0]
+        print(f"  wkw READ {layer_name} - {default_timer() - start:.2f}s")
         assert np.array_equal(readback_data, testdata)
+
+        start = default_timer()
+        partial_data = ds.read(
+            tuple(a.start for a in PARTIAL_SELECTION),
+            tuple(a.stop - a.start for a in PARTIAL_SELECTION),
+        )[0]
+        print(f"  wkw PARTIAL READ {layer_name} - {default_timer() - start:.5f}s")
+        assert np.array_equal(partial_data, testdata[PARTIAL_SELECTION])
 
 
 @pytest.mark.parametrize("layer_name,testdata", TESTDATA)
@@ -138,7 +154,7 @@ def test_zarr(folder: Path, layer_name: str, testdata: np.ndarray):
     path = folder / "l4_sample_zarr" / layer_name
     a = zarr.create(
         shape=testdata.shape,
-        chunks=(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
+        chunks=(512, 512, 512),
         dtype=testdata.dtype,
         compressor=Blosc(
             cname="zstd",
@@ -154,15 +170,19 @@ def test_zarr(folder: Path, layer_name: str, testdata: np.ndarray):
     a[:, :, :] = testdata
     print(f"  zarr WRITE {layer_name} - {default_timer() - start:.2f}s")
 
-    start = default_timer()
-    readback_data = a[
-        0 : testdata.shape[0], 0 : testdata.shape[1], 0 : testdata.shape[2]
-    ]
-    print(f"  zarr READ {layer_name} - {default_timer() - start:.2f}s")
-
     print(
         f"  zarr STORAGE {folder_disk_usage(path)/1000000:,.2f} MB - "
         + f"{folder_inodes(path)} inodes"
     )
 
+    start = default_timer()
+    readback_data = a[
+        0 : testdata.shape[0], 0 : testdata.shape[1], 0 : testdata.shape[2]
+    ]
+    print(f"  zarr READ {layer_name} - {default_timer() - start:.2f}s")
     assert np.array_equal(readback_data, testdata)
+
+    start = default_timer()
+    partial_data = a[PARTIAL_SELECTION]
+    print(f"  zarr PARTIAL READ {layer_name} - {default_timer() - start:.5f}s")
+    assert np.array_equal(partial_data, testdata[PARTIAL_SELECTION])
