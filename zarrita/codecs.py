@@ -50,9 +50,9 @@ numcodecs.blosc.use_threads = False
 
 async def _needs_array(
     chunk_value_handle: ValueHandle,
-    array_metadata: "CoreArrayMetadata",
+    array_metadata: CoreArrayMetadata,
     f: Callable[
-        [np.ndarray, "CoreArrayMetadata"], Awaitable[Union[None, np.ndarray, BytesLike]]
+        [np.ndarray, CoreArrayMetadata], Awaitable[Union[None, np.ndarray, BytesLike]]
     ],
 ):
     chunk_array = await chunk_value_handle.toarray()
@@ -75,9 +75,9 @@ async def _needs_array(
 
 async def _needs_bytes(
     chunk_value_handle: ValueHandle,
-    array_metadata: "CoreArrayMetadata",
+    array_metadata: CoreArrayMetadata,
     f: Callable[
-        [BytesLike, "CoreArrayMetadata"], Awaitable[Union[None, np.ndarray, BytesLike]]
+        [BytesLike, CoreArrayMetadata], Awaitable[Union[None, np.ndarray, BytesLike]]
     ],
 ):
     chunk_bytes = await chunk_value_handle.tobytes()
@@ -106,7 +106,7 @@ class Codec(ABC):
     async def decode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         pass
 
@@ -114,7 +114,7 @@ class Codec(ABC):
     async def encode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         pass
 
@@ -148,7 +148,7 @@ class ArrayArrayCodec(Codec):
     async def decode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         return await _needs_array(chunk_value_handle, array_metadata, self.inner_decode)
 
@@ -156,14 +156,14 @@ class ArrayArrayCodec(Codec):
     async def inner_decode(
         self,
         chunk_array: np.ndarray,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> np.ndarray:
         pass
 
     async def encode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         return await _needs_array(chunk_value_handle, array_metadata, self.inner_encode)
 
@@ -171,7 +171,7 @@ class ArrayArrayCodec(Codec):
     async def inner_encode(
         self,
         chunk_array: np.ndarray,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> np.ndarray:
         pass
 
@@ -183,7 +183,7 @@ class ArrayBytesCodec(Codec):
     async def decode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         return await _needs_bytes(chunk_value_handle, array_metadata, self.inner_decode)
 
@@ -191,14 +191,14 @@ class ArrayBytesCodec(Codec):
     async def inner_decode(
         self,
         chunk_array: BytesLike,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> np.ndarray:
         pass
 
     async def encode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         return await _needs_array(chunk_value_handle, array_metadata, self.inner_encode)
 
@@ -206,7 +206,7 @@ class ArrayBytesCodec(Codec):
     async def inner_encode(
         self,
         chunk_array: np.ndarray,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         pass
 
@@ -218,7 +218,7 @@ class BytesBytesCodec(Codec):
     async def decode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         return await _needs_bytes(chunk_value_handle, array_metadata, self.inner_decode)
 
@@ -226,14 +226,14 @@ class BytesBytesCodec(Codec):
     async def inner_decode(
         self,
         chunk_array: BytesLike,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         pass
 
     async def encode(
         self,
         chunk_value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         return await _needs_bytes(chunk_value_handle, array_metadata, self.inner_encode)
 
@@ -241,7 +241,7 @@ class BytesBytesCodec(Codec):
     async def inner_encode(
         self,
         chunk_array: BytesLike,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         pass
 
@@ -254,7 +254,7 @@ class BloscCodec(BytesBytesCodec):
     @classmethod
     def from_metadata(
         cls, codec_metadata: BloscCodecMetadata, data_type: DataType
-    ) -> "BloscCodec":
+    ) -> BloscCodec:
         configuration = codec_metadata.configuration
         if configuration.typesize == 0:
             configuration = attr.evolve(configuration, typesize=data_type.byte_count)
@@ -270,14 +270,14 @@ class BloscCodec(BytesBytesCodec):
     async def inner_decode(
         self,
         chunk_bytes: bytes,
-        _array_metadata: "CoreArrayMetadata",
+        _array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         return await to_thread(self.blosc_codec.decode, chunk_bytes)
 
     async def inner_encode(
         self,
         chunk_bytes: bytes,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         chunk_array = np.frombuffer(chunk_bytes, dtype=array_metadata.dtype)
         return await to_thread(self.blosc_codec.encode, chunk_array)
@@ -288,7 +288,7 @@ class EndianCodec(ArrayBytesCodec):
     configuration: EndianCodecConfigurationMetadata
 
     @classmethod
-    def from_metadata(cls, codec_metadata: EndianCodecMetadata) -> "EndianCodec":
+    def from_metadata(cls, codec_metadata: EndianCodecMetadata) -> EndianCodec:
         return cls(
             configuration=codec_metadata.configuration,
         )
@@ -306,7 +306,7 @@ class EndianCodec(ArrayBytesCodec):
     async def inner_decode(
         self,
         chunk_bytes: BytesLike,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> np.ndarray:
         if self.configuration.endian == "little":
             prefix = "<"
@@ -319,7 +319,7 @@ class EndianCodec(ArrayBytesCodec):
     async def inner_encode(
         self,
         chunk_array: np.ndarray,
-        _array_metadata: "CoreArrayMetadata",
+        _array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         byteorder = self._get_byteorder(chunk_array)
         if self.configuration.endian != byteorder:
@@ -333,7 +333,7 @@ class TransposeCodec(ArrayArrayCodec):
     configuration: TransposeCodecConfigurationMetadata
 
     @classmethod
-    def from_metadata(cls, codec_metadata: TransposeCodecMetadata) -> "TransposeCodec":
+    def from_metadata(cls, codec_metadata: TransposeCodecMetadata) -> TransposeCodec:
         return cls(
             configuration=codec_metadata.configuration,
         )
@@ -341,7 +341,7 @@ class TransposeCodec(ArrayArrayCodec):
     async def inner_decode(
         self,
         chunk_array: np.ndarray,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> np.ndarray:
         new_order = self.configuration.order
         chunk_array = chunk_array.view(np.dtype(array_metadata.data_type.value))
@@ -362,7 +362,7 @@ class TransposeCodec(ArrayArrayCodec):
     async def inner_encode(
         self,
         chunk_array: np.ndarray,
-        _array_metadata: "CoreArrayMetadata",
+        _array_metadata: CoreArrayMetadata,
     ) -> np.ndarray:
         new_order = self.configuration.order
         if isinstance(new_order, tuple):
@@ -377,7 +377,7 @@ class GzipCodec(BytesBytesCodec):
     configuration: GzipCodecConfigurationMetadata
 
     @classmethod
-    def from_metadata(cls, codec_metadata: GzipCodecMetadata) -> "GzipCodec":
+    def from_metadata(cls, codec_metadata: GzipCodecMetadata) -> GzipCodec:
         return cls(
             configuration=codec_metadata.configuration,
         )
@@ -385,14 +385,14 @@ class GzipCodec(BytesBytesCodec):
     async def inner_decode(
         self,
         chunk_bytes: bytes,
-        _array_metadata: "CoreArrayMetadata",
+        _array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         return await to_thread(GZip(self.configuration.level).decode, chunk_bytes)
 
     async def inner_encode(
         self,
         chunk_bytes: bytes,
-        _array_metadata: "CoreArrayMetadata",
+        _array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         return await to_thread(GZip(self.configuration.level).encode, chunk_bytes)
 

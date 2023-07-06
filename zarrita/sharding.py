@@ -82,7 +82,7 @@ class _ShardIndex(NamedTuple):
         cls,
         buffer: BytesLike,
         chunks_per_shard: ChunkCoords,
-    ) -> "_ShardIndex":
+    ) -> _ShardIndex:
         try:
             crc32_bytes = buffer[-4:]
             index_bytes = buffer[:-4]
@@ -98,7 +98,7 @@ class _ShardIndex(NamedTuple):
             raise RuntimeError from e
 
     @classmethod
-    def create_empty(cls, chunks_per_shard: ChunkCoords) -> "_ShardIndex":
+    def create_empty(cls, chunks_per_shard: ChunkCoords) -> _ShardIndex:
         offsets_and_lengths = np.zeros(chunks_per_shard + (2,), dtype="<u8", order="C")
         offsets_and_lengths.fill(MAX_UINT_64)
         return cls(offsets_and_lengths)
@@ -113,7 +113,7 @@ class _ShardProxy(Mapping):
     buf: BytesLike
 
     @classmethod
-    def from_bytes(cls, buf: BytesLike, chunks_per_shard: ChunkCoords) -> "_ShardProxy":
+    def from_bytes(cls, buf: BytesLike, chunks_per_shard: ChunkCoords) -> _ShardProxy:
         index = _ShardIndex.from_bytes(
             buf[-_ShardIndex.index_byte_length(chunks_per_shard) :],
             chunks_per_shard,
@@ -124,7 +124,7 @@ class _ShardProxy(Mapping):
         return obj
 
     @classmethod
-    def create_empty(cls, chunks_per_shard: ChunkCoords) -> "_ShardProxy":
+    def create_empty(cls, chunks_per_shard: ChunkCoords) -> _ShardProxy:
         index = _ShardIndex.create_empty(chunks_per_shard)
         obj = cls()
         obj.buf = memoryview(b"")
@@ -154,7 +154,7 @@ class _ShardBuilder(_ShardProxy):
         chunks_per_shard: ChunkCoords,
         tombstones: Set[ChunkCoords],
         *shard_dicts: Mapping[ChunkCoords, BytesLike],
-    ) -> "_ShardBuilder":
+    ) -> _ShardBuilder:
         obj = cls.create_empty(chunks_per_shard)
         for chunk_coords in morton_order_iter(chunks_per_shard):
             if tombstones is not None and chunk_coords in tombstones:
@@ -167,7 +167,7 @@ class _ShardBuilder(_ShardProxy):
         return obj
 
     @classmethod
-    def create_empty(cls, chunks_per_shard: ChunkCoords) -> "_ShardBuilder":
+    def create_empty(cls, chunks_per_shard: ChunkCoords) -> _ShardBuilder:
         obj = cls()
         obj.buf = bytearray()
         obj.index = _ShardIndex.create_empty(chunks_per_shard)
@@ -194,7 +194,7 @@ class ShardingCodec(ArrayBytesCodec):
     @classmethod
     def from_metadata(
         cls, codec_metadata: ShardingCodecMetadata, data_type: DataType
-    ) -> "ShardingCodec":
+    ) -> ShardingCodec:
         return cls(
             configuration=codec_metadata.configuration,
             codecs=Codec.codecs_from_metadata(
@@ -203,7 +203,7 @@ class ShardingCodec(ArrayBytesCodec):
         )
 
     async def inner_decode(
-        self, chunk_array: BytesLike, array_metadata: "CoreArrayMetadata"
+        self, chunk_array: BytesLike, array_metadata: CoreArrayMetadata
     ) -> np.ndarray:
         # Not implemented because `decode` is overridden
         raise NotImplementedError
@@ -217,7 +217,7 @@ class ShardingCodec(ArrayBytesCodec):
     async def decode(
         self,
         value_handle: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         # print("decode")
         if isinstance(value_handle, NoneValueHandle):
@@ -267,7 +267,7 @@ class ShardingCodec(ArrayBytesCodec):
         self,
         value_handle: ValueHandle,
         selection: SliceSelection,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         # print("decode_partial")
         if isinstance(value_handle, NoneValueHandle):
@@ -334,7 +334,7 @@ class ShardingCodec(ArrayBytesCodec):
         chunk_coords: ChunkCoords,
         chunk_selection: SliceSelection,
         out_selection: SliceSelection,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
         out: np.ndarray,
     ):
         chunk_value = shard_dict.get(chunk_coords, None)
@@ -348,7 +348,7 @@ class ShardingCodec(ArrayBytesCodec):
     async def _decode_chunk(
         self,
         value: Optional[BytesLike],
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> Optional[np.ndarray]:
         if value is None:
             return None
@@ -387,7 +387,7 @@ class ShardingCodec(ArrayBytesCodec):
     async def encode(
         self,
         value: ValueHandle,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         # print("encode")
         shard_array = await value.toarray()
@@ -454,7 +454,7 @@ class ShardingCodec(ArrayBytesCodec):
         old_value_handle: ValueHandle,
         shard_array: np.ndarray,
         selection: SliceSelection,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> ValueHandle:
         # print("encode_partial")
         shard_shape = array_metadata.chunk_shape
@@ -535,7 +535,7 @@ class ShardingCodec(ArrayBytesCodec):
     async def _encode_chunk(
         self,
         chunk: np.ndarray,
-        array_metadata: "CoreArrayMetadata",
+        array_metadata: CoreArrayMetadata,
     ) -> BytesLike:
         from zarrita.array import CoreArrayMetadata
 

@@ -44,15 +44,15 @@ def _json_convert(o):
 
 @frozen
 class _AsyncArrayProxy:
-    array: "ArrayV2"
+    array: ArrayV2
 
-    def __getitem__(self, selection: Selection) -> "_AsyncArraySelectionProxy":
+    def __getitem__(self, selection: Selection) -> _AsyncArraySelectionProxy:
         return _AsyncArraySelectionProxy(self.array, selection)
 
 
 @frozen
 class _AsyncArraySelectionProxy:
-    array: "ArrayV2"
+    array: ArrayV2
     selection: Selection
 
     async def get(self) -> np.ndarray:
@@ -83,7 +83,7 @@ class ArrayV2:
         compressor: Optional[Dict[str, Any]] = None,
         attributes: Optional[Dict[str, Any]] = None,
         exists_ok: bool = False,
-    ) -> "ArrayV2":
+    ) -> ArrayV2:
         store_path = make_store_path(store)
         if not exists_ok:
             assert not await (store_path / ZARRAY_JSON).exists_async()
@@ -125,7 +125,7 @@ class ArrayV2:
         compressor: Optional[Dict[str, Any]] = None,
         attributes: Optional[Dict[str, Any]] = None,
         exists_ok: bool = False,
-    ) -> "ArrayV2":
+    ) -> ArrayV2:
         return sync(
             cls.create_async(
                 store,
@@ -146,7 +146,7 @@ class ArrayV2:
     async def open_async(
         cls,
         store: StoreLike,
-    ) -> "ArrayV2":
+    ) -> ArrayV2:
         store_path = make_store_path(store)
         zarray_bytes, zattrs_bytes = await asyncio.gather(
             (store_path / ZARRAY_JSON).get_async(),
@@ -163,7 +163,7 @@ class ArrayV2:
     def open(
         cls,
         store: StoreLike,
-    ) -> "ArrayV2":
+    ) -> ArrayV2:
         return sync(cls.open_async(store))
 
     @classmethod
@@ -172,7 +172,7 @@ class ArrayV2:
         store_path: StorePath,
         zarray_json: Any,
         zattrs_json: Optional[Any],
-    ) -> "ArrayV2":
+    ) -> ArrayV2:
         metadata = make_cattr().structure(zarray_json, ArrayV2Metadata)
         out = cls(
             store_path=store_path,
@@ -425,7 +425,7 @@ class ArrayV2:
         )
         return "0" if chunk_identifier == "" else chunk_identifier
 
-    async def resize_async(self, new_shape: ChunkCoords) -> "ArrayV2":
+    async def resize_async(self, new_shape: ChunkCoords) -> ArrayV2:
         assert len(new_shape) == len(self.metadata.shape)
         new_metadata = attr.evolve(self.metadata, shape=new_shape)
 
@@ -451,7 +451,7 @@ class ArrayV2:
         )
         return attr.evolve(self, metadata=new_metadata)
 
-    def resize(self, new_shape: ChunkCoords) -> "ArrayV2":
+    def resize(self, new_shape: ChunkCoords) -> ArrayV2:
         return sync(self.resize_async(new_shape))
 
     def __repr__(self):

@@ -56,15 +56,15 @@ def runtime_configuration(
 
 @frozen
 class _AsyncArrayProxy:
-    array: "Array"
+    array: Array
 
-    def __getitem__(self, selection: Selection) -> "_AsyncArraySelectionProxy":
+    def __getitem__(self, selection: Selection) -> _AsyncArraySelectionProxy:
         return _AsyncArraySelectionProxy(self.array, selection)
 
 
 @frozen
 class _AsyncArraySelectionProxy:
-    array: "Array"
+    array: Array
     selection: Selection
 
     async def get(self) -> np.ndarray:
@@ -105,7 +105,7 @@ class Array:
         attributes: Optional[Dict[str, Any]] = None,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
         exists_ok: bool = False,
-    ) -> "Array":
+    ) -> Array:
         store_path = make_store_path(store)
         if not exists_ok:
             assert not await (store_path / ZARR_JSON).exists_async()
@@ -170,7 +170,7 @@ class Array:
         attributes: Optional[Dict[str, Any]] = None,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
         exists_ok: bool = False,
-    ) -> "Array":
+    ) -> Array:
         return sync(
             cls.create_async(
                 store=store,
@@ -192,7 +192,7 @@ class Array:
         cls,
         store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
-    ) -> "Array":
+    ) -> Array:
         store_path = make_store_path(store)
         zarr_json_bytes = await (store_path / ZARR_JSON).get_async()
         assert zarr_json_bytes is not None
@@ -207,7 +207,7 @@ class Array:
         cls,
         store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
-    ) -> "Array":
+    ) -> Array:
         return sync(cls.open_async(store, runtime_configuration=runtime_configuration))
 
     @classmethod
@@ -216,7 +216,7 @@ class Array:
         store_path: StorePath,
         zarr_json: Any,
         runtime_configuration: ArrayRuntimeConfiguration,
-    ) -> "Array":
+    ) -> Array:
         metadata = make_cattr().structure(zarr_json, ArrayMetadata)
         out = cls(
             metadata=metadata,
@@ -232,7 +232,7 @@ class Array:
         cls,
         store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
-    ) -> Union["Array", ArrayV2]:
+    ) -> Union[Array, ArrayV2]:
         store_path = make_store_path(store)
         v3_metadata_bytes = await (store_path / ZARR_JSON).get_async()
         if v3_metadata_bytes is not None:
@@ -249,7 +249,7 @@ class Array:
         cls,
         store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
-    ) -> Union["Array", ArrayV2]:
+    ) -> Union[Array, ArrayV2]:
         return sync(cls.open_auto_async(store, runtime_configuration))
 
     async def _save_metadata(self) -> None:
@@ -536,7 +536,7 @@ class Array:
 
         return encoded_chunk_value
 
-    async def resize_async(self, new_shape: ChunkCoords) -> "Array":
+    async def resize_async(self, new_shape: ChunkCoords) -> Array:
         assert len(new_shape) == len(self.metadata.shape)
         new_metadata = attr.evolve(self.metadata, shape=new_shape)
 
@@ -564,7 +564,7 @@ class Array:
         )
         return attr.evolve(self, metadata=new_metadata)
 
-    def resize(self, new_shape: ChunkCoords) -> "Array":
+    def resize(self, new_shape: ChunkCoords) -> Array:
         return sync(self.resize_async(new_shape))
 
     def __repr__(self):
