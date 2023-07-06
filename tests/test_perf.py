@@ -17,9 +17,9 @@ from zarrita.array import runtime_configuration
 TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
 CHUNK_SIZE = 32
 PARTIAL_SELECTION = (
-    slice(128, 128 + 32),
-    slice(128, 128 + 32),
-    slice(128, 128 + 32),
+    slice(32, 32 + 32),
+    slice(32, 32 + 32),
+    slice(32, 32 + 32),
 )
 
 TESTDATA: List[Tuple[str, np.ndarray]] = [
