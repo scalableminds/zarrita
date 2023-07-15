@@ -180,9 +180,15 @@ class GzipCodecMetadata:
 
 
 @frozen
+class Crc32cCodecMetadata:
+    name: Literal["crc32c"] = "crc32c"
+
+
+@frozen
 class ShardingCodecConfigurationMetadata:
     chunk_shape: ChunkCoords
-    codecs: List["CodecMetadata"] = field(factory=list)
+    codecs: List["CodecMetadata"]
+    index_codecs: List["CodecMetadata"]
 
 
 @frozen
@@ -197,6 +203,7 @@ CodecMetadata = Union[
     TransposeCodecMetadata,
     GzipCodecMetadata,
     ShardingCodecMetadata,
+    Crc32cCodecMetadata,
 ]
 
 
@@ -220,8 +227,8 @@ class ArrayMetadata:
     chunk_grid: RegularChunkGridMetadata
     chunk_key_encoding: ChunkKeyEncodingMetadata
     fill_value: Any
+    codecs: List[CodecMetadata]
     attributes: Dict[str, Any] = field(factory=dict)
-    codecs: Optional[List[CodecMetadata]] = None
     dimension_names: Optional[Tuple[str, ...]] = None
     zarr_format: Literal[3] = 3
     node_type: Literal["array"] = "array"

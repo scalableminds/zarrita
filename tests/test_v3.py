@@ -1,6 +1,6 @@
 from pathlib import Path
 from shutil import rmtree
-from typing import Iterator, List, Literal
+from typing import Iterator, List, Literal, Optional
 
 import numpy as np
 import pytest
@@ -160,9 +160,14 @@ async def test_order(
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
 
     codecs_: List[CodecMetadata] = (
-        [codecs.sharding_codec((8, 8), codecs=[codecs.transpose_codec(store_order)])]
+        [
+            codecs.sharding_codec(
+                (8, 8),
+                codecs=[codecs.transpose_codec(store_order), codecs.endian_codec()],
+            )
+        ]
         if with_sharding
-        else [codecs.transpose_codec(store_order)]
+        else [codecs.transpose_codec(store_order), codecs.endian_codec()]
     )
 
     a = await Array.create_async(
@@ -224,8 +229,8 @@ def test_order_implicit(
 ):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
 
-    codecs_: List[CodecMetadata] = (
-        [codecs.sharding_codec((8, 8))] if with_sharding else []
+    codecs_: Optional[List[CodecMetadata]] = (
+        [codecs.sharding_codec((8, 8))] if with_sharding else None
     )
 
     a = Array.create(
@@ -398,7 +403,10 @@ def test_write_partial_sharded_chunks(store: Store):
         codecs=[
             codecs.sharding_codec(
                 chunk_shape=(10, 10),
-                codecs=[codecs.blosc_codec(typesize=data.dtype.itemsize)],
+                codecs=[
+                    codecs.endian_codec(),
+                    codecs.blosc_codec(typesize=data.dtype.itemsize),
+                ],
             )
         ],
     )
@@ -501,7 +509,7 @@ async def test_zarr_compat_F(store: Store):
         dtype=data.dtype,
         chunk_key_encoding=("v2", "."),
         fill_value=1,
-        codecs=[codecs.transpose_codec("F")],
+        codecs=[codecs.transpose_codec("F"), codecs.endian_codec()],
     )
 
     z2 = zarr.create(
@@ -570,7 +578,7 @@ def test_gzip(store: Store):
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[codecs.gzip_codec()],
+        codecs=[codecs.endian_codec(), codecs.gzip_codec()],
     )
 
     a[:, :] = data

@@ -9,7 +9,7 @@ import numpy as np
 from attr import asdict, frozen
 
 from zarrita.array_v2 import ArrayV2
-from zarrita.codecs import Codec, CodecMetadata
+from zarrita.codecs import ArrayBytesCodec, Codec, CodecMetadata, endian_codec
 from zarrita.common import (
     ZARR_JSON,
     ChunkCoords,
@@ -116,6 +116,8 @@ class Array:
             else DataType[dtype_to_data_type[dtype.str]]
         )
 
+        codecs = list(codecs) if codecs is not None else [endian_codec()]
+
         metadata = ArrayMetadata(
             shape=shape,
             data_type=data_type,
@@ -138,7 +140,7 @@ class Array:
                 )
             ),
             fill_value=0 if fill_value is None else fill_value,
-            codecs=list(codecs) if codecs else [],
+            codecs=codecs,
             dimension_names=tuple(dimension_names) if dimension_names else None,
             attributes=attributes or {},
         )
@@ -267,6 +269,10 @@ class Array:
             self.metadata.dimension_names
         ), "`dimension_names` and `shape` need to have the same number of dimensions."
         assert self.metadata.fill_value is not None, "`fill_value` is required."
+
+        assert any(
+            isinstance(codec, ArrayBytesCodec) for codec in self.codecs
+        ), "Exactly one array-to-bytes codec is required."
 
         prev_codec: Optional[Codec] = None
         for codec in self.codecs:

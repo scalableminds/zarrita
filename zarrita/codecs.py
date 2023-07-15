@@ -16,6 +16,7 @@ import attr
 import numcodecs
 import numpy as np
 from attr import asdict, frozen
+from crc32c import crc32c
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
 
@@ -24,6 +25,7 @@ from zarrita.metadata import (
     BloscCodecConfigurationMetadata,
     BloscCodecMetadata,
     CodecMetadata,
+    Crc32cCodecMetadata,
     DataType,
     EndianCodecConfigurationMetadata,
     EndianCodecMetadata,
@@ -397,6 +399,31 @@ class GzipCodec(BytesBytesCodec):
         return await to_thread(GZip(self.configuration.level).encode, chunk_bytes)
 
 
+@frozen
+class Crc32cCodec(BytesBytesCodec):
+    @classmethod
+    def from_metadata(cls, codec_metadata: Crc32cCodecMetadata) -> Crc32cCodec:
+        return cls()
+
+    async def inner_decode(
+        self,
+        chunk_bytes: bytes,
+        _array_metadata: CoreArrayMetadata,
+    ) -> BytesLike:
+        crc32_bytes = chunk_bytes[-4:]
+        inner_bytes = chunk_bytes[:-4]
+
+        assert np.uint32(crc32c(inner_bytes)).tobytes() == bytes(crc32_bytes)
+        return inner_bytes
+
+    async def inner_encode(
+        self,
+        chunk_bytes: bytes,
+        _array_metadata: CoreArrayMetadata,
+    ) -> BytesLike:
+        return chunk_bytes + np.uint32(crc32c(chunk_bytes)).tobytes()
+
+
 def blosc_codec(
     typesize: int,
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd",
@@ -415,7 +442,7 @@ def blosc_codec(
     )
 
 
-def endian_codec(endian: Literal["big", "little"]) -> EndianCodecMetadata:
+def endian_codec(endian: Literal["big", "little"] = "little") -> EndianCodecMetadata:
     return EndianCodecMetadata(configuration=EndianCodecConfigurationMetadata(endian))
 
 
@@ -431,9 +458,21 @@ def gzip_codec(level: int = 5) -> GzipCodecMetadata:
     return GzipCodecMetadata(configuration=GzipCodecConfigurationMetadata(level))
 
 
+def crc32c_codec() -> Crc32cCodecMetadata:
+    return Crc32cCodecMetadata()
+
+
 def sharding_codec(
-    chunk_shape: Tuple[int, ...], codecs: List[CodecMetadata] = []
+    chunk_shape: Tuple[int, ...],
+    codecs: Optional[List[CodecMetadata]] = None,
+    index_codecs: Optional[List[CodecMetadata]] = None,
 ) -> ShardingCodecMetadata:
+    codecs = codecs if codecs is not None else [endian_codec()]
+    index_codecs = (
+        index_codecs if index_codecs is not None else [endian_codec(), crc32c_codec()]
+    )
     return ShardingCodecMetadata(
-        configuration=ShardingCodecConfigurationMetadata(chunk_shape, codecs)
+        configuration=ShardingCodecConfigurationMetadata(
+            chunk_shape, codecs, index_codecs
+        )
     )
