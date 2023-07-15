@@ -21,6 +21,10 @@ class ValueHandle:
         pass
 
     @abstractmethod
+    async def set_async_partial(self, value: ValueHandle, offset: int):
+        pass
+
+    @abstractmethod
     def __getitem__(self, selection: slice) -> ValueHandle:
         pass
 
@@ -32,6 +36,10 @@ class ValueHandle:
     async def toarray(
         self, shape: Optional[Tuple[int, ...]] = None
     ) -> Optional[np.ndarray]:
+        pass
+
+    @abstractmethod
+    def supports_partial_writes(self) -> bool:
         pass
 
 
@@ -58,6 +66,14 @@ class FileValueHandle(ValueHandle):
         else:
             await self.store_path.delete_async()
 
+    async def set_async_partial(self, value: ValueHandle, offset: int):
+        if self.supports_partial_writes():
+            buf = await value.tobytes()
+            assert buf is not None
+            await self.store_path.set_async(buf, (offset, offset + len(buf)))
+        else:
+            raise Exception("The underlying store does not support partial writes.")
+
     async def tobytes(self) -> Optional[bytes]:
         if self.selection:
             return await self.store_path.get_async(
@@ -72,6 +88,9 @@ class FileValueHandle(ValueHandle):
         if buf is not None:
             return np.frombuffer(buf)
         return None
+
+    def supports_partial_writes(self) -> bool:
+        return self.store_path.store.supports_partial_writes
 
 
 class BufferValueHandle(ValueHandle):
@@ -88,6 +107,13 @@ class BufferValueHandle(ValueHandle):
         assert buf is not None
         self.buf = buf
 
+    async def set_async_partial(self, value: ValueHandle, offset: int):
+        buf = await value.tobytes()
+        assert buf is not None
+        new_buf = bytearray(self.buf)
+        new_buf[offset : offset + len(buf)] = buf
+        self.buf = new_buf
+
     def __getitem__(self, selection: slice) -> ValueHandle:
         return BufferValueHandle(self.buf[selection])
 
@@ -98,6 +124,9 @@ class BufferValueHandle(ValueHandle):
         self, shape: Optional[Tuple[int, ...]] = None
     ) -> Optional[np.ndarray]:
         return np.frombuffer(self.buf)
+
+    def supports_partial_writes(self) -> bool:
+        return True
 
 
 class ArrayValueHandle(ValueHandle):
@@ -115,6 +144,9 @@ class ArrayValueHandle(ValueHandle):
         assert array is not None
         self.array = array
 
+    async def set_async_partial(self, value: ValueHandle, offset: int):
+        raise NotImplementedError
+
     def __getitem__(self, selection: slice) -> ValueHandle:
         return ArrayValueHandle(self.array[selection])
 
@@ -128,6 +160,9 @@ class ArrayValueHandle(ValueHandle):
         self, shape: Optional[Tuple[int, ...]] = None
     ) -> Optional[np.ndarray]:
         return self.array
+
+    def supports_partial_writes(self) -> bool:
+        return False
 
 
 class NoneValueHandle(ValueHandle):
@@ -144,3 +179,9 @@ class NoneValueHandle(ValueHandle):
         self, shape: Optional[Tuple[int, ...]] = None
     ) -> Optional[np.ndarray]:
         return None
+
+    def set_async_partial(self, value: ValueHandle, offset: int):
+        raise NotImplementedError
+
+    def supports_partial_writes(self) -> bool:
+        return False

@@ -72,6 +72,7 @@ def test_zarrita_sharding(store: Store, layer_name: str, testdata: np.ndarray):
                 (CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(
                         cname="zstd",
                         clevel=5,

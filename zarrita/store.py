@@ -62,6 +62,8 @@ class StorePath:
 
 
 class Store:
+    supports_partial_writes = False
+
     @classmethod
     def from_path(cls, pth: Path) -> Store:
         try:
@@ -114,6 +116,7 @@ class Store:
 
 
 class LocalStore(Store):
+    supports_partial_writes = True
     root: Path
     auto_mkdir: bool
 

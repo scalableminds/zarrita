@@ -213,7 +213,7 @@ class CoreArrayMetadata:
     chunk_shape: ChunkCoords
     data_type: DataType
     fill_value: Any
-    runtime_configuration: "ArrayRuntimeConfiguration"
+    runtime_configuration: ArrayRuntimeConfiguration
 
     @property
     def dtype(self) -> np.dtype:
@@ -236,6 +236,17 @@ class ArrayMetadata:
     @property
     def dtype(self) -> np.dtype:
         return np.dtype(self.data_type.value)
+
+    def get_core_metadata(
+        self, runtime_configuration: ArrayRuntimeConfiguration
+    ) -> CoreArrayMetadata:
+        return CoreArrayMetadata(
+            shape=self.shape,
+            chunk_shape=self.chunk_grid.configuration.chunk_shape,
+            data_type=self.data_type,
+            fill_value=self.fill_value,
+            runtime_configuration=runtime_configuration,
+        )
 
 
 @frozen

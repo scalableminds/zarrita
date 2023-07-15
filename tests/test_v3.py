@@ -45,6 +45,7 @@ def test_sharding(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -72,6 +73,7 @@ def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -102,6 +104,7 @@ def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -126,6 +129,7 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -282,7 +286,11 @@ def test_open_sharding(store: Store):
         codecs=[
             codecs.sharding_codec(
                 (8, 8),
-                [codecs.transpose_codec("F"), codecs.blosc_codec(typesize=4)],
+                [
+                    codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
+                    codecs.blosc_codec(typesize=4),
+                ],
             )
         ],
     )
