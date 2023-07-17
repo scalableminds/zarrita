@@ -25,12 +25,6 @@ from zarrita.indexing import BasicIndexer, all_chunk_coords, is_total_slice
 from zarrita.metadata import ArrayV2Metadata
 from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
-from zarrita.value_handle import (
-    BufferValueHandle,
-    FileValueHandle,
-    NoneValueHandle,
-    ValueHandle,
-)
 
 
 def _json_convert(o):
@@ -254,11 +248,9 @@ class ArrayV2:
         out_selection: SliceSelection,
         out: np.ndarray,
     ):
-        value_handle = FileValueHandle(
-            self.store_path / self._encode_chunk_key(chunk_coords)
-        )
+        store_path = self.store_path / self._encode_chunk_key(chunk_coords)
 
-        chunk_array = await self._decode_chunk(await value_handle.tobytes())
+        chunk_array = await self._decode_chunk(await store_path.get_async())
         if chunk_array is not None:
             tmp = chunk_array[chunk_selection]
             out[out_selection] = tmp
@@ -345,9 +337,7 @@ class ArrayV2:
         chunk_selection: SliceSelection,
         out_selection: SliceSelection,
     ):
-        value_handle = FileValueHandle(
-            self.store_path / self._encode_chunk_key(chunk_coords)
-        )
+        store_path = self.store_path / self._encode_chunk_key(chunk_coords)
 
         if is_total_slice(chunk_selection, chunk_shape):
             # write entire chunks
@@ -360,12 +350,12 @@ class ArrayV2:
                 chunk_array.fill(value)
             else:
                 chunk_array = value[out_selection]
-            await self._write_chunk_to_store(value_handle, chunk_array)
+            await self._write_chunk_to_store(store_path, chunk_array)
 
         else:
             # writing partial chunks
             # read chunk first
-            tmp = await self._decode_chunk(await value_handle.tobytes())
+            tmp = await self._decode_chunk(await store_path.get_async())
 
             # merge new value
             if tmp is None:
@@ -381,22 +371,23 @@ class ArrayV2:
                 )  # make a writable copy
             chunk_array[chunk_selection] = value[out_selection]
 
-            await self._write_chunk_to_store(value_handle, chunk_array)
+            await self._write_chunk_to_store(store_path, chunk_array)
 
     async def _write_chunk_to_store(
-        self, value_handle: ValueHandle, chunk_array: np.ndarray
+        self, store_path: StorePath, chunk_array: np.ndarray
     ):
-        chunk_value: ValueHandle
+        chunk_bytes: Optional[BytesLike]
         if np.all(chunk_array == self.metadata.fill_value):
             # chunks that only contain fill_value will be removed
-            chunk_value = NoneValueHandle()
+            await store_path.delete_async()
         else:
-            chunk_value = await self._encode_chunk(chunk_array)
+            chunk_bytes = await self._encode_chunk(chunk_array)
+            if chunk_bytes is None:
+                await store_path.delete_async()
+            else:
+                await store_path.set_async(chunk_bytes)
 
-        # write out chunk
-        await value_handle.set_async(chunk_value)
-
-    async def _encode_chunk(self, chunk_array: np.ndarray):
+    async def _encode_chunk(self, chunk_array: np.ndarray) -> Optional[BytesLike]:
         chunk_array = chunk_array.ravel(order=self.metadata.order)
 
         if self.metadata.filters is not None:
@@ -417,7 +408,7 @@ class ArrayV2:
         else:
             encoded_chunk_bytes = ensure_bytes(chunk_array)
 
-        return BufferValueHandle(encoded_chunk_bytes)
+        return encoded_chunk_bytes
 
     def _encode_chunk_key(self, chunk_coords: ChunkCoords) -> str:
         chunk_identifier = self.metadata.dimension_separator.join(

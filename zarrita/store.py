@@ -36,7 +36,7 @@ class StorePath:
         return cls(Store.from_path(pth))
 
     async def get_async(
-        self, byte_range: Optional[Tuple[int, int]] = None
+        self, byte_range: Optional[Tuple[int, Optional[int]]] = None
     ) -> Optional[BytesLike]:
         return await self.store.get_async(self.path, byte_range)
 
@@ -86,7 +86,7 @@ class Store:
         )
 
     async def get_async(
-        self, key: str, byte_range: Optional[Tuple[int, int]] = None
+        self, key: str, byte_range: Optional[Tuple[int, Optional[int]]] = None
     ) -> Optional[BytesLike]:
         raise NotImplementedError
 
@@ -162,7 +162,7 @@ class LocalStore(Store):
             return path.write_bytes(value)
 
     async def get_async(
-        self, key: str, byte_range: Optional[Tuple[int, int]] = None
+        self, key: str, byte_range: Optional[Tuple[int, Optional[int]]] = None
     ) -> Optional[BytesLike]:
         assert isinstance(key, str)
         path = self.root / key
@@ -234,7 +234,7 @@ class RemoteStore(Store):
         return fs, root
 
     async def get_async(
-        self, key: str, byte_range: Optional[Tuple[int, int]] = None
+        self, key: str, byte_range: Optional[Tuple[int, Optional[int]]] = None
     ) -> Optional[BytesLike]:
         assert isinstance(key, str)
         fs, root = self.make_fs()

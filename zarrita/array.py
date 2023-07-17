@@ -1,21 +1,18 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict, Iterable, List, Literal, Optional, Tuple, Union
+from asyncio import AbstractEventLoop
+from typing import Any, Dict, Iterable, Literal, Optional, Tuple, Union
 
 import attr
 import numpy as np
 from attr import asdict, frozen
 
 from zarrita.array_v2 import ArrayV2
-from zarrita.codecs import (
-    Codec,
-    CodecMetadata,
-    CodecPipeline,
-    endian_codec,
-)
+from zarrita.codecs import CodecMetadata, CodecPipeline, endian_codec
 from zarrita.common import (
     ZARR_JSON,
+    BytesLike,
     ChunkCoords,
     Selection,
     SliceSelection,
@@ -37,20 +34,13 @@ from zarrita.metadata import (
 from zarrita.sharding import ShardingCodec
 from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
-from zarrita.value_handle import (
-    ArrayValueHandle,
-    BufferValueHandle,
-    FileValueHandle,
-    NoneValueHandle,
-    ValueHandle,
-)
 
 
 @frozen
 class ArrayRuntimeConfiguration:
     order: Literal["C", "F"] = "C"
     concurrency: Optional[int] = None
-    preallocate_shards: Optional[bool] = None
+    asyncio_loop: Optional[AbstractEventLoop] = None
 
 
 def runtime_configuration(
@@ -195,7 +185,8 @@ class Array:
                 attributes=attributes,
                 runtime_configuration=runtime_configuration,
                 exists_ok=exists_ok,
-            )
+            ),
+            runtime_configuration.asyncio_loop if runtime_configuration else None,
         )
 
     @classmethod
@@ -219,7 +210,10 @@ class Array:
         store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> Array:
-        return sync(cls.open_async(store, runtime_configuration=runtime_configuration))
+        return sync(
+            cls.open_async(store, runtime_configuration=runtime_configuration),
+            runtime_configuration.asyncio_loop if runtime_configuration else None,
+        )
 
     @classmethod
     def from_json(
@@ -263,7 +257,10 @@ class Array:
         store: StoreLike,
         runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
     ) -> Union[Array, ArrayV2]:
-        return sync(cls.open_auto_async(store, runtime_configuration))
+        return sync(
+            cls.open_auto_async(store, runtime_configuration),
+            runtime_configuration.asyncio_loop if runtime_configuration else None,
+        )
 
     async def _save_metadata(self) -> None:
         self._validate_metadata()
@@ -298,7 +295,7 @@ class Array:
         return _AsyncArrayProxy(self)
 
     def __getitem__(self, selection: Selection):
-        return sync(self._get_async(selection))
+        return sync(self._get_async(selection), self.runtime_configuration.asyncio_loop)
 
     async def _get_async(self, selection: Selection):
         indexer = BasicIndexer(
@@ -338,21 +335,20 @@ class Array:
     ):
         chunk_key_encoding = self.metadata.chunk_key_encoding
         chunk_key = chunk_key_encoding.encode_chunk_key(chunk_coords)
-        value_handle: ValueHandle = FileValueHandle(self.store_path / chunk_key)
+        store_path = self.store_path / chunk_key
 
         if len(self.codec_pipeline.codecs) == 1 and isinstance(
             self.codec_pipeline.codecs[0], ShardingCodec
         ):
-            value_handle = await self.codec_pipeline.codecs[0].decode_partial(
-                value_handle, chunk_selection
+            chunk_array = await self.codec_pipeline.codecs[0].decode_partial(
+                store_path, chunk_selection
             )
-            chunk_array = await value_handle.toarray()
             if chunk_array is not None:
                 out[out_selection] = chunk_array
             else:
                 out[out_selection] = self.metadata.fill_value
         else:
-            chunk_array = await self._decode_chunk(value_handle, chunk_selection)
+            chunk_array = await self._decode_chunk(store_path, chunk_selection)
             if chunk_array is not None:
                 tmp = chunk_array[chunk_selection]
                 out[out_selection] = tmp
@@ -360,9 +356,9 @@ class Array:
                 out[out_selection] = self.metadata.fill_value
 
     async def _decode_chunk(
-        self, value_handle: ValueHandle, selection: SliceSelection
+        self, store_path: StorePath, selection: SliceSelection
     ) -> Optional[np.ndarray]:
-        chunk_bytes = await value_handle.tobytes()
+        chunk_bytes = await store_path.get_async()
         if chunk_bytes is None:
             return None
 
@@ -381,7 +377,7 @@ class Array:
         return chunk_array
 
     def __setitem__(self, selection: Selection, value: np.ndarray) -> None:
-        sync(self._set_async(selection, value))
+        sync(self._set_async(selection, value), self.runtime_configuration.asyncio_loop)
 
     async def _set_async(self, selection: Selection, value: np.ndarray) -> None:
         chunk_shape = self.metadata.chunk_grid.configuration.chunk_shape
@@ -430,7 +426,7 @@ class Array:
     ):
         chunk_key_encoding = self.metadata.chunk_key_encoding
         chunk_key = chunk_key_encoding.encode_chunk_key(chunk_coords)
-        value_handle = FileValueHandle(self.store_path / chunk_key)
+        store_path = self.store_path / chunk_key
 
         if is_total_slice(chunk_selection, chunk_shape):
             # write entire chunks
@@ -442,7 +438,7 @@ class Array:
                 chunk_array.fill(value)
             else:
                 chunk_array = value[out_selection]
-            await self._write_chunk_to_store(value_handle, chunk_array)
+            await self._write_chunk_to_store(store_path, chunk_array)
 
         elif len(self.codec_pipeline.codecs) == 1 and isinstance(
             self.codec_pipeline.codecs[0], ShardingCodec
@@ -450,7 +446,7 @@ class Array:
             sharding_codec = self.codec_pipeline.codecs[0]
             # print("encode_partial", chunk_coords, chunk_selection, repr(self))
             await sharding_codec.encode_partial(
-                value_handle,
+                store_path,
                 value[out_selection],
                 chunk_selection,
             )
@@ -458,7 +454,7 @@ class Array:
             # writing partial chunks
             # read chunk first
             tmp = await self._decode_chunk(
-                value_handle,
+                store_path,
                 tuple(slice(0, c) for c in chunk_shape),
             )
 
@@ -473,22 +469,21 @@ class Array:
                 chunk_array = tmp.copy()  # make a writable copy
             chunk_array[chunk_selection] = value[out_selection]
 
-            await self._write_chunk_to_store(value_handle, chunk_array)
+            await self._write_chunk_to_store(store_path, chunk_array)
 
     async def _write_chunk_to_store(
-        self, value_handle: ValueHandle, chunk_array: np.ndarray
+        self, store_path: StorePath, chunk_array: np.ndarray
     ):
-        chunk_value: ValueHandle
+        chunk_bytes: Optional[BytesLike]
         if np.all(chunk_array == self.metadata.fill_value):
             # chunks that only contain fill_value will be removed
-            chunk_value = NoneValueHandle()
+            await store_path.delete_async()
         else:
-            chunk_value = BufferValueHandle(
-                await self.codec_pipeline.encode(chunk_array)
-            )
-
-        # write out chunk
-        await value_handle.set_async(chunk_value)
+            chunk_bytes = await self.codec_pipeline.encode(chunk_array)
+            if chunk_bytes is None:
+                await store_path.delete_async()
+            else:
+                await store_path.set_async(chunk_bytes)
 
     async def resize_async(self, new_shape: ChunkCoords) -> Array:
         assert len(new_shape) == len(self.metadata.shape)
@@ -519,7 +514,9 @@ class Array:
         return attr.evolve(self, metadata=new_metadata)
 
     def resize(self, new_shape: ChunkCoords) -> Array:
-        return sync(self.resize_async(new_shape))
+        return sync(
+            self.resize_async(new_shape), self.runtime_configuration.asyncio_loop
+        )
 
     def __repr__(self):
         return f"<Array {self.store_path} shape={self.shape} dtype={self.dtype}>"

@@ -34,7 +34,7 @@ async def _runner(
         event.set()
 
 
-def sync(coro: Coroutine):
+def sync(coro: Coroutine, loop: Optional[asyncio.AbstractEventLoop] = None):
     """
     Make loop run coroutine until it returns. Runs in other thread
 
@@ -43,9 +43,10 @@ def sync(coro: Coroutine):
     >>> fsspec.asyn.sync(fsspec.asyn.get_loop(), func, *args,
                          timeout=timeout, **kwargs)
     """
-    # NB: if the loop is not running *yet*, it is OK to submit work
-    # and we will wait for it
-    loop = _get_loop()
+    if loop is None:
+        # NB: if the loop is not running *yet*, it is OK to submit work
+        # and we will wait for it
+        loop = _get_loop()
     if loop is None or loop.is_closed():
         raise RuntimeError("Loop is not running")
     try:

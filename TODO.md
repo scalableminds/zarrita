@@ -19,6 +19,8 @@
 - [ ] docstrings
 - [ ] partial write for uncompressed shards
 - [ ] coalesce byte ranges in store
+- [x] valuehandle bytes
+- [ ] import asyncio loop
 
 ## Non-priority
 

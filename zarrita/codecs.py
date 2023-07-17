@@ -1,18 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import (
-    TYPE_CHECKING,
-    Awaitable,
-    Callable,
-    Iterable,
-    Iterator,
-    List,
-    Literal,
-    Optional,
-    Tuple,
-    Union,
-)
+from typing import TYPE_CHECKING, Iterable, List, Literal, Optional, Tuple, Union
 from warnings import warn
 
 import attr
@@ -38,61 +27,12 @@ from zarrita.metadata import (
     TransposeCodecConfigurationMetadata,
     TransposeCodecMetadata,
 )
-from zarrita.value_handle import (
-    ArrayValueHandle,
-    BufferValueHandle,
-    NoneValueHandle,
-    ValueHandle,
-)
 
 if TYPE_CHECKING:
     from zarrita.metadata import CoreArrayMetadata
 
 # See https://zarr.readthedocs.io/en/stable/tutorial.html#configuring-blosc
 numcodecs.blosc.use_threads = False
-
-
-async def _needs_array(
-    chunk_value_handle: ValueHandle,
-    array_metadata: CoreArrayMetadata,
-    f: Callable[[np.ndarray], Awaitable[Union[None, np.ndarray, BytesLike]]],
-):
-    chunk_array = await chunk_value_handle.toarray()
-    if chunk_array is None:
-        return NoneValueHandle()
-    if chunk_array.dtype.name != array_metadata.dtype.name:
-        chunk_array = chunk_array.view(dtype=array_metadata.dtype)
-    result = await f(chunk_array)
-    if result is None:
-        return NoneValueHandle()
-    elif (
-        isinstance(result, bytes)
-        or isinstance(result, bytearray)
-        or isinstance(result, memoryview)
-    ):
-        return BufferValueHandle(result)
-    elif isinstance(result, np.ndarray):
-        return ArrayValueHandle(result)
-
-
-async def _needs_bytes(
-    chunk_value_handle: ValueHandle,
-    f: Callable[[BytesLike], Awaitable[Union[None, np.ndarray, BytesLike]]],
-):
-    chunk_bytes = await chunk_value_handle.tobytes()
-    if chunk_bytes is None:
-        return NoneValueHandle()
-    result = await f(chunk_bytes)
-    if result is None:
-        return NoneValueHandle()
-    elif (
-        isinstance(result, bytes)
-        or isinstance(result, bytearray)
-        or isinstance(result, memoryview)
-    ):
-        return BufferValueHandle(result)
-    elif isinstance(result, np.ndarray):
-        return ArrayValueHandle(result)
 
 
 class Codec(ABC):
@@ -114,12 +54,11 @@ class ArrayArrayCodec(Codec):
     ) -> np.ndarray:
         pass
 
-    
     @abstractmethod
     async def encode(
         self,
         chunk_array: np.ndarray,
-    ) -> np.ndarray:
+    ) -> Optional[np.ndarray]:
         pass
 
 
@@ -135,7 +74,7 @@ class ArrayBytesCodec(Codec):
     async def encode(
         self,
         chunk_array: np.ndarray,
-    ) -> BytesLike:
+    ) -> Optional[BytesLike]:
         pass
 
 
@@ -151,7 +90,7 @@ class BytesBytesCodec(Codec):
     async def encode(
         self,
         chunk_array: BytesLike,
-    ) -> BytesLike:
+    ) -> Optional[BytesLike]:
         pass
 
 
@@ -275,14 +214,23 @@ class CodecPipeline:
 
         return chunk_array
 
-    async def encode(self, chunk_array: np.ndarray) -> BytesLike:
+    async def encode(self, chunk_array: np.ndarray) -> Optional[BytesLike]:
         for aa_codec in self._array_array_codecs():
-            chunk_array = await aa_codec.encode(chunk_array)
+            chunk_array_maybe = await aa_codec.encode(chunk_array)
+            if chunk_array_maybe is None:
+                return None
+            chunk_array = chunk_array_maybe
 
-        chunk_bytes = await self._array_bytes_codec().encode(chunk_array)
+        chunk_bytes_maybe = await self._array_bytes_codec().encode(chunk_array)
+        if chunk_bytes_maybe is None:
+            return None
+        chunk_bytes = chunk_bytes_maybe
 
         for bb_codec in self._bytes_bytes_codecs():
-            chunk_bytes = await bb_codec.encode(chunk_bytes)
+            chunk_bytes_maybe = await bb_codec.encode(chunk_bytes)
+            if chunk_bytes_maybe is None:
+                return None
+            chunk_bytes = chunk_bytes_maybe
 
         return chunk_bytes
 
@@ -322,7 +270,7 @@ class BloscCodec(BytesBytesCodec):
     async def encode(
         self,
         chunk_bytes: bytes,
-    ) -> BytesLike:
+    ) -> Optional[BytesLike]:
         chunk_array = np.frombuffer(chunk_bytes, dtype=self.array_metadata.dtype)
         return await to_thread(self.blosc_codec.encode, chunk_array)
 
@@ -372,7 +320,7 @@ class EndianCodec(ArrayBytesCodec):
     async def encode(
         self,
         chunk_array: np.ndarray,
-    ) -> BytesLike:
+    ) -> Optional[BytesLike]:
         byteorder = self._get_byteorder(chunk_array)
         if self.configuration.endian != byteorder:
             new_dtype = chunk_array.dtype.newbyteorder(self.configuration.endian)
@@ -421,7 +369,7 @@ class TransposeCodec(ArrayArrayCodec):
     async def encode(
         self,
         chunk_array: np.ndarray,
-    ) -> np.ndarray:
+    ) -> Optional[np.ndarray]:
         new_order = self.configuration.order
         if isinstance(new_order, tuple):
             chunk_array = chunk_array.transpose(new_order).reshape(-1, order="C")
@@ -457,7 +405,7 @@ class GzipCodec(BytesBytesCodec):
     async def encode(
         self,
         chunk_bytes: bytes,
-    ) -> BytesLike:
+    ) -> Optional[BytesLike]:
         return await to_thread(GZip(self.configuration.level).encode, chunk_bytes)
 
     def compute_encoded_size(self, _input_byte_length: int) -> int:
@@ -488,7 +436,7 @@ class Crc32cCodec(BytesBytesCodec):
     async def encode(
         self,
         chunk_bytes: bytes,
-    ) -> BytesLike:
+    ) -> Optional[BytesLike]:
         return chunk_bytes + np.uint32(crc32c(chunk_bytes)).tobytes()
 
     def compute_encoded_size(self, input_byte_length: int) -> int:

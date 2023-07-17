@@ -39,4 +39,7 @@ def open_auto(
     store: StoreLike,
     runtime_configuration_: Optional[ArrayRuntimeConfiguration] = None,
 ) -> Union[Array, ArrayV2, Group, GroupV2]:
-    return _sync(open_auto_async(store, runtime_configuration_))
+    return _sync(
+        open_auto_async(store, runtime_configuration_),
+        runtime_configuration_.asyncio_loop if runtime_configuration_ else None,
+    )
