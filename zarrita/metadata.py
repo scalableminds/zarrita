@@ -1,15 +1,26 @@
 from __future__ import annotations
 
+from asyncio import AbstractEventLoop
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
 from attr import field, frozen
 
 from zarrita.common import ChunkCoords
 
-if TYPE_CHECKING:
-    from zarrita.array import ArrayRuntimeConfiguration
+
+@frozen
+class RuntimeConfiguration:
+    order: Literal["C", "F"] = "C"
+    concurrency: Optional[int] = None
+    asyncio_loop: Optional[AbstractEventLoop] = None
+
+
+def runtime_configuration(
+    order: Literal["C", "F"], concurrency: Optional[int] = None
+) -> RuntimeConfiguration:
+    return RuntimeConfiguration(order=order, concurrency=concurrency)
 
 
 class DataType(Enum):
@@ -213,7 +224,7 @@ class CoreArrayMetadata:
     chunk_shape: ChunkCoords
     data_type: DataType
     fill_value: Any
-    runtime_configuration: ArrayRuntimeConfiguration
+    runtime_configuration: RuntimeConfiguration
 
     @property
     def dtype(self) -> np.dtype:
@@ -238,7 +249,7 @@ class ArrayMetadata:
         return np.dtype(self.data_type.value)
 
     def get_core_metadata(
-        self, runtime_configuration: ArrayRuntimeConfiguration
+        self, runtime_configuration: RuntimeConfiguration
     ) -> CoreArrayMetadata:
         return CoreArrayMetadata(
             shape=self.shape,

@@ -4,7 +4,9 @@ import asyncio
 import threading
 from typing import Any, Coroutine, List, Optional
 
-iothread: List[Optional[threading.Thread]] = [None]  # dedicated fsspec IO thread
+# From https://github.com/fsspec/filesystem_spec/blob/master/fsspec/asyn.py
+
+iothread: List[Optional[threading.Thread]] = [None]  # dedicated IO thread
 loop: List[Optional[asyncio.AbstractEventLoop]] = [
     None
 ]  # global event loop for any non-async instance
@@ -40,8 +42,7 @@ def sync(coro: Coroutine, loop: Optional[asyncio.AbstractEventLoop] = None):
 
     Examples
     --------
-    >>> fsspec.asyn.sync(fsspec.asyn.get_loop(), func, *args,
-                         timeout=timeout, **kwargs)
+    >>> sync(async_function(), existing_loop)
     """
     if loop is None:
         # NB: if the loop is not running *yet*, it is OK to submit work

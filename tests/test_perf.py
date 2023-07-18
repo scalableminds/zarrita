@@ -11,8 +11,7 @@ import zarr
 from numcodecs import Blosc
 from pytest import fixture
 
-from zarrita import Array, LocalStore, Store, codecs
-from zarrita.array import runtime_configuration
+from zarrita import Array, LocalStore, Store, codecs, runtime_configuration
 
 TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
 CHUNK_SIZE = 32

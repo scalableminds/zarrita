@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from functools import reduce
 from typing import TYPE_CHECKING, Iterable, List, Literal, Optional, Tuple, Union
 from warnings import warn
 
@@ -234,6 +235,11 @@ class CodecPipeline:
 
         return chunk_bytes
 
+    def compute_encoded_size(self, byte_length: int) -> int:
+        return reduce(
+            lambda acc, codec: codec.compute_encoded_size(acc), self.codecs, byte_length
+        )
+
 
 @frozen
 class BloscCodec(BytesBytesCodec):
@@ -315,6 +321,12 @@ class EndianCodec(ArrayBytesCodec):
             f"{prefix}{self.array_metadata.data_type.to_numpy_shortname()}"
         )
         chunk_array = np.frombuffer(chunk_bytes, dtype)
+
+        # ensure correct chunk shape
+        if chunk_array.shape != self.array_metadata.chunk_shape:
+            chunk_array = chunk_array.reshape(
+                self.array_metadata.chunk_shape,
+            )
         return chunk_array
 
     async def encode(
@@ -355,15 +367,7 @@ class TransposeCodec(ArrayArrayCodec):
         if isinstance(new_order, tuple):
             chunk_array = chunk_array.transpose(new_order)
         elif new_order == "F":
-            chunk_array = chunk_array.reshape(
-                self.array_metadata.chunk_shape,
-                order="F",
-            )
-        else:
-            chunk_array = chunk_array.reshape(
-                self.array_metadata.chunk_shape,
-                order="C",
-            )
+            chunk_array = chunk_array.T
         return chunk_array
 
     async def encode(
@@ -372,10 +376,10 @@ class TransposeCodec(ArrayArrayCodec):
     ) -> Optional[np.ndarray]:
         new_order = self.configuration.order
         if isinstance(new_order, tuple):
-            chunk_array = chunk_array.transpose(new_order).reshape(-1, order="C")
-        else:
-            chunk_array = chunk_array.ravel(order=new_order)
-        return chunk_array
+            chunk_array = chunk_array.transpose(new_order)
+        elif new_order == "F":
+            chunk_array = chunk_array.T
+        return chunk_array.reshape(-1, order="C")
 
     def compute_encoded_size(self, input_byte_length: int) -> int:
         return input_byte_length

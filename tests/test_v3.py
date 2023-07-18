@@ -147,6 +147,30 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
     assert np.array_equal(data, read_data)
 
 
+def test_nested_sharding(store: Store, l4_sample_data: np.ndarray):
+    data = l4_sample_data
+
+    a = Array.create(
+        store / "l4_sample" / "color" / "1",
+        shape=data.shape,
+        chunk_shape=(64, 64, 64),
+        dtype=data.dtype,
+        fill_value=0,
+        codecs=[
+            codecs.sharding_codec(
+                (32, 32, 32),
+                [codecs.sharding_codec((16, 16, 16))],
+            )
+        ],
+    )
+
+    a[:, :, :] = data
+
+    read_data = a[0 : data.shape[0], 0 : data.shape[1], 0 : data.shape[2]]
+    assert data.shape == read_data.shape
+    assert np.array_equal(data, read_data)
+
+
 @pytest.mark.parametrize("input_order", ["F", "C"])
 @pytest.mark.parametrize("store_order", ["F", "C"])
 @pytest.mark.parametrize("runtime_write_order", ["F", "C"])

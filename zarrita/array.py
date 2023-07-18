@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from asyncio import AbstractEventLoop
 from typing import Any, Dict, Iterable, Literal, Optional, Tuple, Union
 
 import attr
@@ -12,7 +11,6 @@ from zarrita.array_v2 import ArrayV2
 from zarrita.codecs import CodecMetadata, CodecPipeline, endian_codec
 from zarrita.common import (
     ZARR_JSON,
-    BytesLike,
     ChunkCoords,
     Selection,
     SliceSelection,
@@ -27,6 +25,7 @@ from zarrita.metadata import (
     DefaultChunkKeyEncodingMetadata,
     RegularChunkGridConfigurationMetadata,
     RegularChunkGridMetadata,
+    RuntimeConfiguration,
     V2ChunkKeyEncodingConfigurationMetadata,
     V2ChunkKeyEncodingMetadata,
     dtype_to_data_type,
@@ -34,19 +33,6 @@ from zarrita.metadata import (
 from zarrita.sharding import ShardingCodec
 from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
-
-
-@frozen
-class ArrayRuntimeConfiguration:
-    order: Literal["C", "F"] = "C"
-    concurrency: Optional[int] = None
-    asyncio_loop: Optional[AbstractEventLoop] = None
-
-
-def runtime_configuration(
-    order: Literal["C", "F"], concurrency: Optional[int] = None
-) -> ArrayRuntimeConfiguration:
-    return ArrayRuntimeConfiguration(order=order, concurrency=concurrency)
 
 
 @frozen
@@ -79,7 +65,7 @@ def _json_convert(o):
 class Array:
     metadata: ArrayMetadata
     store_path: StorePath
-    runtime_configuration: ArrayRuntimeConfiguration
+    runtime_configuration: RuntimeConfiguration
     codec_pipeline: CodecPipeline
 
     @classmethod
@@ -98,7 +84,7 @@ class Array:
         codecs: Optional[Iterable[CodecMetadata]] = None,
         dimension_names: Optional[Iterable[str]] = None,
         attributes: Optional[Dict[str, Any]] = None,
-        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        runtime_configuration: RuntimeConfiguration = RuntimeConfiguration(),
         exists_ok: bool = False,
     ) -> Array:
         store_path = make_store_path(store)
@@ -139,7 +125,7 @@ class Array:
             dimension_names=tuple(dimension_names) if dimension_names else None,
             attributes=attributes or {},
         )
-        runtime_configuration = runtime_configuration or ArrayRuntimeConfiguration()
+        runtime_configuration = runtime_configuration or RuntimeConfiguration()
 
         array = cls(
             metadata=metadata,
@@ -169,7 +155,7 @@ class Array:
         codecs: Optional[Iterable[CodecMetadata]] = None,
         dimension_names: Optional[Iterable[str]] = None,
         attributes: Optional[Dict[str, Any]] = None,
-        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        runtime_configuration: RuntimeConfiguration = RuntimeConfiguration(),
         exists_ok: bool = False,
     ) -> Array:
         return sync(
@@ -186,14 +172,14 @@ class Array:
                 runtime_configuration=runtime_configuration,
                 exists_ok=exists_ok,
             ),
-            runtime_configuration.asyncio_loop if runtime_configuration else None,
+            runtime_configuration.asyncio_loop,
         )
 
     @classmethod
     async def open_async(
         cls,
         store: StoreLike,
-        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        runtime_configuration: RuntimeConfiguration = RuntimeConfiguration(),
     ) -> Array:
         store_path = make_store_path(store)
         zarr_json_bytes = await (store_path / ZARR_JSON).get_async()
@@ -201,18 +187,18 @@ class Array:
         return cls.from_json(
             store_path,
             json.loads(zarr_json_bytes),
-            runtime_configuration=runtime_configuration or ArrayRuntimeConfiguration(),
+            runtime_configuration=runtime_configuration or RuntimeConfiguration(),
         )
 
     @classmethod
     def open(
         cls,
         store: StoreLike,
-        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        runtime_configuration: RuntimeConfiguration = RuntimeConfiguration(),
     ) -> Array:
         return sync(
             cls.open_async(store, runtime_configuration=runtime_configuration),
-            runtime_configuration.asyncio_loop if runtime_configuration else None,
+            runtime_configuration.asyncio_loop,
         )
 
     @classmethod
@@ -220,7 +206,7 @@ class Array:
         cls,
         store_path: StorePath,
         zarr_json: Any,
-        runtime_configuration: ArrayRuntimeConfiguration,
+        runtime_configuration: RuntimeConfiguration,
     ) -> Array:
         metadata = make_cattr().structure(zarr_json, ArrayMetadata)
         out = cls(
@@ -238,7 +224,7 @@ class Array:
     async def open_auto_async(
         cls,
         store: StoreLike,
-        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        runtime_configuration: RuntimeConfiguration = RuntimeConfiguration(),
     ) -> Union[Array, ArrayV2]:
         store_path = make_store_path(store)
         v3_metadata_bytes = await (store_path / ZARR_JSON).get_async()
@@ -246,8 +232,7 @@ class Array:
             return cls.from_json(
                 store_path,
                 json.loads(v3_metadata_bytes),
-                runtime_configuration=runtime_configuration
-                or ArrayRuntimeConfiguration(),
+                runtime_configuration=runtime_configuration or RuntimeConfiguration(),
             )
         return await ArrayV2.open_async(store_path)
 
@@ -255,11 +240,11 @@ class Array:
     def open_auto(
         cls,
         store: StoreLike,
-        runtime_configuration: Optional[ArrayRuntimeConfiguration] = None,
+        runtime_configuration: RuntimeConfiguration = RuntimeConfiguration(),
     ) -> Union[Array, ArrayV2]:
         return sync(
             cls.open_auto_async(store, runtime_configuration),
-            runtime_configuration.asyncio_loop if runtime_configuration else None,
+            runtime_configuration.asyncio_loop,
         )
 
     async def _save_metadata(self) -> None:
@@ -348,33 +333,13 @@ class Array:
             else:
                 out[out_selection] = self.metadata.fill_value
         else:
-            chunk_array = await self._decode_chunk(store_path, chunk_selection)
-            if chunk_array is not None:
+            chunk_bytes = await store_path.get_async()
+            if chunk_bytes is not None:
+                chunk_array = await self.codec_pipeline.decode(chunk_bytes)
                 tmp = chunk_array[chunk_selection]
                 out[out_selection] = tmp
             else:
                 out[out_selection] = self.metadata.fill_value
-
-    async def _decode_chunk(
-        self, store_path: StorePath, selection: SliceSelection
-    ) -> Optional[np.ndarray]:
-        chunk_bytes = await store_path.get_async()
-        if chunk_bytes is None:
-            return None
-
-        chunk_array = await self.codec_pipeline.decode(chunk_bytes)
-
-        # ensure correct dtype
-        if chunk_array.dtype.name != self.metadata.data_type.name:
-            chunk_array = chunk_array.view(self.metadata.dtype)
-
-        # ensure correct chunk shape
-        if chunk_array.shape != self.metadata.chunk_grid.configuration.chunk_shape:
-            chunk_array = chunk_array.reshape(
-                self.metadata.chunk_grid.configuration.chunk_shape,
-            )
-
-        return chunk_array
 
     def __setitem__(self, selection: Selection, value: np.ndarray) -> None:
         sync(self._set_async(selection, value), self.runtime_configuration.asyncio_loop)
@@ -453,20 +418,19 @@ class Array:
         else:
             # writing partial chunks
             # read chunk first
-            tmp = await self._decode_chunk(
-                store_path,
-                tuple(slice(0, c) for c in chunk_shape),
-            )
+            chunk_bytes = await store_path.get_async()
 
             # merge new value
-            if tmp is None:
+            if chunk_bytes is None:
                 chunk_array = np.empty(
                     chunk_shape,
                     dtype=self.metadata.dtype,
                 )
                 chunk_array.fill(self.metadata.fill_value)
             else:
-                chunk_array = tmp.copy()  # make a writable copy
+                chunk_array = (
+                    await self.codec_pipeline.decode(chunk_bytes)
+                ).copy()  # make a writable copy
             chunk_array[chunk_selection] = value[out_selection]
 
             await self._write_chunk_to_store(store_path, chunk_array)
@@ -474,7 +438,6 @@ class Array:
     async def _write_chunk_to_store(
         self, store_path: StorePath, chunk_array: np.ndarray
     ):
-        chunk_bytes: Optional[BytesLike]
         if np.all(chunk_array == self.metadata.fill_value):
             # chunks that only contain fill_value will be removed
             await store_path.delete_async()

@@ -21,6 +21,7 @@
 - [ ] coalesce byte ranges in store
 - [x] valuehandle bytes
 - [ ] import asyncio loop
+- [x] index_codecs
 
 ## Non-priority
 
