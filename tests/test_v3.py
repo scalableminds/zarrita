@@ -798,3 +798,36 @@ def test_exists_ok(store: Store):
         dtype=np.dtype("uint8"),
         exists_ok=True,
     )
+
+
+def test_update_attributes_array(store: Store):
+    data = np.zeros((16, 18), dtype="uint16")
+
+    a = Array.create(
+        store / "update_attributes",
+        shape=data.shape,
+        chunk_shape=(10, 10),
+        dtype=data.dtype,
+        fill_value=1,
+        attributes={"hello": "world"},
+    )
+
+    a = Array.open(store / "update_attributes")
+    assert a.metadata.attributes["hello"] == "world"
+
+    a.update_attributes({"hello": "zarrita"})
+
+    a = Array.open(store / "update_attributes")
+    assert a.metadata.attributes["hello"] == "zarrita"
+
+
+def test_update_attributes_group(store: Store):
+    g = Group.create(store / "update_attributes_group", attributes={"hello": "world"})
+
+    g = Group.open(store / "update_attributes_group")
+    assert g.metadata.attributes["hello"] == "world"
+
+    g.update_attributes({"hello": "zarrita"})
+
+    g = Group.open(store / "update_attributes_group")
+    assert g.metadata.attributes["hello"] == "zarrita"

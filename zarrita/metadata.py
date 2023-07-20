@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import json
 from asyncio import AbstractEventLoop
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
-from attr import field, frozen
+from attr import asdict, field, frozen
 
-from zarrita.common import ChunkCoords
+from zarrita.common import ChunkCoords, make_cattr
 
 
 @frozen
@@ -142,13 +143,23 @@ ChunkKeyEncodingMetadata = Union[
 ]
 
 
+BloscShuffle = Literal["noshuffle", "shuffle", "bitshuffle"]
+
+
 @frozen
 class BloscCodecConfigurationMetadata:
     typesize: int
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
     clevel: int = 5
-    shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle"
+    shuffle: BloscShuffle = "noshuffle"
     blocksize: int = 0
+
+
+blosc_shuffle_int_to_str: Dict[int, BloscShuffle] = {
+    0: "noshuffle",
+    1: "shuffle",
+    2: "bitshuffle",
+}
 
 
 @frozen
@@ -259,6 +270,18 @@ class ArrayMetadata:
             runtime_configuration=runtime_configuration,
         )
 
+    def to_bytes(self) -> bytes:
+        def _json_convert(o):
+            if isinstance(o, DataType):
+                return o.name
+            raise TypeError
+
+        return json.dumps(asdict(self), default=_json_convert).encode()
+
+    @classmethod
+    def from_json(cls, zarr_json: Any) -> ArrayMetadata:
+        return make_cattr().structure(zarr_json, cls)
+
 
 @frozen
 class ArrayV2Metadata:
@@ -271,3 +294,18 @@ class ArrayV2Metadata:
     dimension_separator: Literal[".", "/"] = "."
     compressor: Optional[Dict[str, Any]] = None
     zarr_format: Literal[2] = 2
+
+    def to_bytes(self) -> bytes:
+        def _json_convert(o):
+            if isinstance(o, np.dtype):
+                if o.fields is None:
+                    return o.str
+                else:
+                    return o.descr
+            raise TypeError
+
+        return json.dumps(asdict(self), default=_json_convert).encode()
+
+    @classmethod
+    def from_json(cls, zarr_json: Any) -> ArrayV2Metadata:
+        return make_cattr().structure(zarr_json, cls)

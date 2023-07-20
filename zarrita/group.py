@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Literal, Optional, Union
 
-from attr import asdict, field, frozen
+from attr import asdict, evolve, field, frozen
 
 from zarrita.array import Array
 from zarrita.common import ZARR_JSON, make_cattr
@@ -17,6 +17,13 @@ class GroupMetadata:
     attributes: Dict[str, Any] = field(factory=dict)
     zarr_format: Literal[3] = 3
     node_type: Literal["group"] = "group"
+
+    def to_bytes(self) -> bytes:
+        return json.dumps(asdict(self)).encode()
+
+    @classmethod
+    def from_json(cls, zarr_json: Any) -> GroupMetadata:
+        return make_cattr().structure(zarr_json, GroupMetadata)
 
 
 @frozen
@@ -81,7 +88,7 @@ class Group:
     def open(
         cls,
         store: StoreLike,
-        runtime_configuration: RuntimeConfiguration,
+        runtime_configuration: RuntimeConfiguration = RuntimeConfiguration(),
     ) -> Group:
         return sync(
             cls.open_async(store, runtime_configuration),
@@ -96,7 +103,7 @@ class Group:
         runtime_configuration: RuntimeConfiguration,
     ) -> Group:
         group = cls(
-            metadata=make_cattr().structure(zarr_json, GroupMetadata),
+            metadata=GroupMetadata.from_json(zarr_json),
             store_path=store_path,
             runtime_configuration=runtime_configuration,
         )
@@ -122,9 +129,7 @@ class Group:
         raise KeyError
 
     async def _save_metadata(self) -> None:
-        await (self.store_path / ZARR_JSON).set_async(
-            json.dumps(asdict(self.metadata)).encode(),
-        )
+        await (self.store_path / ZARR_JSON).set_async(self.metadata.to_bytes())
 
     async def get_async(self, path: str) -> Union[Array, Group]:
         return await self.__class__.open_or_array(
@@ -162,6 +167,19 @@ class Group:
     def create_array(self, path: str, **kwargs) -> Array:
         return sync(
             self.create_array_async(path, **kwargs),
+            self.runtime_configuration.asyncio_loop,
+        )
+
+    async def update_attributes_async(self, new_attributes: Dict[str, Any]) -> Group:
+        new_metadata = evolve(self.metadata, attributes=new_attributes)
+
+        # Write new metadata
+        await (self.store_path / ZARR_JSON).set_async(new_metadata.to_bytes())
+        return evolve(self, metadata=new_metadata)
+
+    def update_attributes(self, new_attributes: Dict[str, Any]) -> Group:
+        return sync(
+            self.update_attributes_async(new_attributes),
             self.runtime_configuration.asyncio_loop,
         )
 

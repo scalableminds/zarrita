@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any, Dict, Literal, Optional, Union
+from typing import TYPE_CHECKING, Any, Dict, Literal, Optional, Union
 
-from attr import asdict, frozen
+from attr import asdict, evolve, frozen
 
 from zarrita.array_v2 import ArrayV2
 from zarrita.common import ZARRAY_JSON, ZATTRS_JSON, ZGROUP_JSON, make_cattr
@@ -12,10 +12,20 @@ from zarrita.metadata import RuntimeConfiguration
 from zarrita.store import StoreLike, StorePath, make_store_path
 from zarrita.sync import sync
 
+if TYPE_CHECKING:
+    from zarrita.group import Group
+
 
 @frozen
 class GroupV2Metadata:
     zarr_format: Literal[2] = 2
+
+    def to_bytes(self) -> bytes:
+        return json.dumps(asdict(self)).encode()
+
+    @classmethod
+    def from_json(cls, zarr_json: Any) -> GroupV2Metadata:
+        return make_cattr().structure(zarr_json, cls)
 
 
 @frozen
@@ -105,7 +115,7 @@ class GroupV2:
         attributes: Optional[Dict[str, Any]] = None,
     ) -> GroupV2:
         group = cls(
-            metadata=make_cattr().structure(zarr_json, GroupV2Metadata),
+            metadata=GroupV2Metadata.from_json(zarr_json),
             store_path=store_path,
             runtime_configuration=runtime_configuration,
             attributes=attributes,
@@ -135,9 +145,7 @@ class GroupV2:
         raise KeyError
 
     async def _save_metadata(self) -> None:
-        await (self.store_path / ZGROUP_JSON).set_async(
-            json.dumps(asdict(self.metadata)).encode(),
-        )
+        await (self.store_path / ZGROUP_JSON).set_async(self.metadata.to_bytes())
         if self.attributes is not None and len(self.attributes) > 0:
             await (self.store_path / ZATTRS_JSON).set_async(
                 json.dumps(self.attributes).encode(),
@@ -182,6 +190,38 @@ class GroupV2:
         return sync(
             self.create_array_async(path, **kwargs),
             self.runtime_configuration.asyncio_loop,
+        )
+
+    async def convert_to_v3_async(self) -> Group:
+        from zarrita.common import ZARR_JSON
+        from zarrita.group import Group, GroupMetadata
+
+        new_metadata = GroupMetadata(attributes=self.attributes or {})
+        new_metadata_bytes = new_metadata.to_bytes()
+
+        await (self.store_path / ZARR_JSON).set_async(new_metadata_bytes)
+
+        return Group.from_json(
+            store_path=self.store_path,
+            zarr_json=json.loads(new_metadata_bytes),
+            runtime_configuration=self.runtime_configuration,
+        )
+
+    async def update_attributes_async(self, new_attributes: Dict[str, Any]) -> GroupV2:
+        await (self.store_path / ZATTRS_JSON).set_async(
+            json.dumps(new_attributes).encode()
+        )
+        return evolve(self, attributes=new_attributes)
+
+    def update_attributes(self, new_attributes: Dict[str, Any]) -> GroupV2:
+        return sync(
+            self.update_attributes_async(new_attributes),
+            self.runtime_configuration.asyncio_loop,
+        )
+
+    def convert_to_v3(self) -> Group:
+        return sync(
+            self.convert_to_v3_async(), loop=self.runtime_configuration.asyncio_loop
         )
 
     def __repr__(self):

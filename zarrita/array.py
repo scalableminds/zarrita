@@ -3,9 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any, Dict, Iterable, Literal, Optional, Tuple, Union
 
-import attr
 import numpy as np
-from attr import asdict, frozen
+from attr import evolve, frozen
 
 from zarrita.array_v2 import ArrayV2
 from zarrita.codecs import CodecMetadata, CodecPipeline, endian_codec
@@ -15,7 +14,6 @@ from zarrita.common import (
     Selection,
     SliceSelection,
     concurrent_map,
-    make_cattr,
 )
 from zarrita.indexing import BasicIndexer, all_chunk_coords, is_total_slice
 from zarrita.metadata import (
@@ -208,7 +206,7 @@ class Array:
         zarr_json: Any,
         runtime_configuration: RuntimeConfiguration,
     ) -> Array:
-        metadata = make_cattr().structure(zarr_json, ArrayMetadata)
+        metadata = ArrayMetadata.from_json(zarr_json)
         out = cls(
             metadata=metadata,
             store_path=store_path,
@@ -250,9 +248,7 @@ class Array:
     async def _save_metadata(self) -> None:
         self._validate_metadata()
 
-        await (self.store_path / ZARR_JSON).set_async(
-            json.dumps(asdict(self.metadata), default=_json_convert).encode(),
-        )
+        await (self.store_path / ZARR_JSON).set_async(self.metadata.to_bytes())
 
     def _validate_metadata(self) -> None:
         assert len(self.metadata.shape) == len(
@@ -450,7 +446,7 @@ class Array:
 
     async def resize_async(self, new_shape: ChunkCoords) -> Array:
         assert len(new_shape) == len(self.metadata.shape)
-        new_metadata = attr.evolve(self.metadata, shape=new_shape)
+        new_metadata = evolve(self.metadata, shape=new_shape)
 
         # Remove all chunks outside of the new shape
         chunk_shape = self.metadata.chunk_grid.configuration.chunk_shape
@@ -471,14 +467,25 @@ class Array:
         )
 
         # Write new metadata
-        await (self.store_path / ZARR_JSON).set_async(
-            json.dumps(asdict(new_metadata), default=_json_convert).encode(),
-        )
-        return attr.evolve(self, metadata=new_metadata)
+        await (self.store_path / ZARR_JSON).set_async(new_metadata.to_bytes())
+        return evolve(self, metadata=new_metadata)
 
     def resize(self, new_shape: ChunkCoords) -> Array:
         return sync(
             self.resize_async(new_shape), self.runtime_configuration.asyncio_loop
+        )
+
+    async def update_attributes_async(self, new_attributes: Dict[str, Any]) -> Array:
+        new_metadata = evolve(self.metadata, attributes=new_attributes)
+
+        # Write new metadata
+        await (self.store_path / ZARR_JSON).set_async(new_metadata.to_bytes())
+        return evolve(self, metadata=new_metadata)
+
+    def update_attributes(self, new_attributes: Dict[str, Any]) -> Array:
+        return sync(
+            self.update_attributes_async(new_attributes),
+            self.runtime_configuration.asyncio_loop,
         )
 
     def __repr__(self):
