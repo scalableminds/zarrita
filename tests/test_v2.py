@@ -10,11 +10,7 @@ import zarr
 from pytest import fixture
 
 from zarrita import Array, ArrayV2, Group, GroupV2, LocalStore, Store, open_auto_async
-from zarrita.codecs import (
-    BloscCodec,
-    EndianCodec,
-    TransposeCodec,
-)
+from zarrita.codecs import BloscCodec, EndianCodec, TransposeCodec
 
 
 @fixture
