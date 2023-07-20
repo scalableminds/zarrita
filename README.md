@@ -8,7 +8,7 @@ Zarrita is an experimental implementation of [Zarr v3](https://zarr-specs.readth
 import zarrita
 import numpy as np
 
-store = zarrita.LocalStore('testdata') # or zarrita.RemoteStore('s3://bucket/test')
+store = zarrita.LocalStore('testoutput') # or zarrita.RemoteStore('s3://bucket/test')
 ```
 
 ## Create an array
@@ -19,7 +19,10 @@ a = zarrita.Array.create(
     shape=(6, 10),
     dtype='int32',
     chunk_shape=(2, 5),
-    codecs=[zarrita.codecs.blosc_codec()],
+    codecs=[
+        zarrita.codecs.endian_codec(),
+        zarrita.codecs.blosc_codec(typesize=4),
+    ],
     attributes={'question': 'life', 'answer': 42}
 )
 a[:, :] = np.ones((6, 10), dtype='int32')
@@ -44,7 +47,10 @@ a = zarrita.Array.create(
     codecs=[
         zarrita.codecs.sharding_codec(
             chunk_shape=(8, 8),
-            codecs=[zarrita.codecs.blosc_codec()]
+            codecs=[
+                zarrita.codecs.endian_codec(),
+                zarrita.codecs.blosc_codec(typesize=4),
+            ]
         ),
     ],
 )
@@ -76,6 +82,18 @@ a = g['group2']['array']
 assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
 ```
 
+## Resize array
+
+```python
+a.resize((10, 10))
+```
+
+## Update attributes
+
+```python
+a.update_attributes({'question': 'life', 'answer': 0})
+```
+
 ## Zarr v2
 
 ```python
@@ -95,14 +113,13 @@ assert a3.metadata.shape == a.shape
 
 ```python
 a = await zarrita.Array.create_async(
-    store / 'array',
+    store / 'array_async',
     shape=(6, 10),
     dtype='int32',
     chunk_shape=(2, 5),
-    codecs=[zarrita.codecs.blosc_codec()],
-    attributes={'question': 'life', 'answer': 42}
 )
 await a.async_[:, :].set(np.ones((6, 10), dtype='int32'))
+await a.async_[:, :].get()
 ```
 
 # Credits

@@ -78,7 +78,7 @@ class ArrayV2:
 
         metadata = ArrayV2Metadata(
             shape=shape,
-            dtype=dtype,
+            dtype=np.dtype(dtype),
             chunks=chunks,
             order=order,
             dimension_separator=dimension_separator,
