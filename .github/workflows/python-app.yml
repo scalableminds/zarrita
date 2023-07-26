@@ -22,7 +22,7 @@ jobs:
           poetry install
       - name: Type check with mypy
         run: |
-          poetry run python -m mypy .
+          poetry run mypy .
       - name: Lint with ruff
         run: |
           poetry run ruff check .

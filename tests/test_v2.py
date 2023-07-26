@@ -10,6 +10,7 @@ import zarr
 from pytest import fixture
 
 from zarrita import Array, ArrayV2, Group, GroupV2, LocalStore, Store, open_auto_async
+from zarrita.codecs import BloscCodec, EndianCodec, TransposeCodec
 
 
 @fixture
@@ -384,3 +385,95 @@ async def test_resize(store: Store):
     assert await store.get_async("resize/0.1") is not None
     assert await store.get_async("resize/1.0") is None
     assert await store.get_async("resize/1.1") is None
+
+
+def test_update_attributes_array(store: Store):
+    data = np.zeros((16, 18), dtype="uint16")
+
+    a = ArrayV2.create(
+        store / "update_attributes",
+        shape=data.shape,
+        chunks=(10, 10),
+        dtype=data.dtype,
+        fill_value=1,
+        attributes={"hello": "world"},
+    )
+
+    a = ArrayV2.open(store / "update_attributes")
+    assert a.attributes is not None and a.attributes["hello"] == "world"
+
+    a.update_attributes({"hello": "zarrita"})
+
+    a = ArrayV2.open(store / "update_attributes")
+    assert a.attributes is not None and a.attributes["hello"] == "zarrita"
+
+
+def test_update_attributes_group(store: Store):
+    g = GroupV2.create(store / "update_attributes_group", attributes={"hello": "world"})
+
+    g = GroupV2.open(store / "update_attributes_group")
+    assert g.attributes is not None and g.attributes["hello"] == "world"
+
+    g.update_attributes({"hello": "zarrita"})
+
+    g = GroupV2.open(store / "update_attributes_group")
+    assert g.attributes is not None and g.attributes["hello"] == "zarrita"
+
+
+def test_convert_to_v3_array(store: Store):
+    data = np.zeros((16, 18), dtype="uint16")
+
+    a = ArrayV2.create(
+        store / "convert_v3",
+        shape=data.shape,
+        chunks=(10, 10),
+        dtype=data.dtype,
+        fill_value=1,
+        dimension_separator="/",
+        attributes={"hello": "world"},
+        order="F",
+        compressor={
+            "id": "blosc",
+            "cname": "zstd",
+            "clevel": 3,
+            "blocksize": 1,
+            "shuffle": 1,
+        },
+    )
+
+    a.convert_to_v3()
+
+    # Load anew
+    a3 = Array.open(store / "convert_v3")
+
+    assert a3.metadata.shape == a.metadata.shape
+    assert a3.metadata.chunk_grid.configuration.chunk_shape == a.metadata.chunks
+    assert a3.metadata.data_type.to_numpy_shortname() == a.metadata.dtype.str[1:]
+    assert a3.metadata.fill_value == a.metadata.fill_value
+    assert a3.metadata.chunk_key_encoding.name == "v2"
+    assert a3.metadata.chunk_key_encoding.configuration.separator == "/"
+    assert a3.metadata.attributes["hello"] == "world"
+    assert any(
+        isinstance(c, TransposeCodec) and c.configuration.order == "F"
+        for c in a3.codec_pipeline.codecs
+    )
+    assert any(
+        isinstance(c, EndianCodec) and c.configuration.endian == "little"
+        for c in a3.codec_pipeline.codecs
+    )
+    assert any(
+        isinstance(c, BloscCodec)
+        and c.configuration.cname == "zstd"
+        and c.configuration.clevel == 3
+        and c.configuration.blocksize == 1
+        and c.configuration.typesize == 2
+        and c.configuration.shuffle == "shuffle"
+        for c in a3.codec_pipeline.codecs
+    )
+
+
+def test_convert_to_v3_group(store: Store):
+    g = GroupV2.create(store / "convert_v3_group", attributes={"hello": "world"})
+    g.convert_to_v3()
+    g3 = Group.open(store / "convert_v3_group")
+    assert g3.metadata.attributes["hello"] == "world"

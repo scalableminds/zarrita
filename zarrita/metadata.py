@@ -1,15 +1,27 @@
 from __future__ import annotations
 
+import json
+from asyncio import AbstractEventLoop
 from enum import Enum
-from typing import TYPE_CHECKING, Any, Dict, List, Literal, Optional, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
 import numpy as np
-from attr import field, frozen
+from attr import asdict, field, frozen
 
-from zarrita.common import ChunkCoords
+from zarrita.common import ChunkCoords, make_cattr
 
-if TYPE_CHECKING:
-    from zarrita.array import ArrayRuntimeConfiguration
+
+@frozen
+class RuntimeConfiguration:
+    order: Literal["C", "F"] = "C"
+    concurrency: Optional[int] = None
+    asyncio_loop: Optional[AbstractEventLoop] = None
+
+
+def runtime_configuration(
+    order: Literal["C", "F"], concurrency: Optional[int] = None
+) -> RuntimeConfiguration:
+    return RuntimeConfiguration(order=order, concurrency=concurrency)
 
 
 class DataType(Enum):
@@ -131,13 +143,23 @@ ChunkKeyEncodingMetadata = Union[
 ]
 
 
+BloscShuffle = Literal["noshuffle", "shuffle", "bitshuffle"]
+
+
 @frozen
 class BloscCodecConfigurationMetadata:
     typesize: int
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
     clevel: int = 5
-    shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle"
+    shuffle: BloscShuffle = "noshuffle"
     blocksize: int = 0
+
+
+blosc_shuffle_int_to_str: Dict[int, BloscShuffle] = {
+    0: "noshuffle",
+    1: "shuffle",
+    2: "bitshuffle",
+}
 
 
 @frozen
@@ -180,9 +202,15 @@ class GzipCodecMetadata:
 
 
 @frozen
+class Crc32cCodecMetadata:
+    name: Literal["crc32c"] = "crc32c"
+
+
+@frozen
 class ShardingCodecConfigurationMetadata:
     chunk_shape: ChunkCoords
-    codecs: List["CodecMetadata"] = field(factory=list)
+    codecs: List["CodecMetadata"]
+    index_codecs: List["CodecMetadata"]
 
 
 @frozen
@@ -197,6 +225,7 @@ CodecMetadata = Union[
     TransposeCodecMetadata,
     GzipCodecMetadata,
     ShardingCodecMetadata,
+    Crc32cCodecMetadata,
 ]
 
 
@@ -206,7 +235,7 @@ class CoreArrayMetadata:
     chunk_shape: ChunkCoords
     data_type: DataType
     fill_value: Any
-    runtime_configuration: "ArrayRuntimeConfiguration"
+    runtime_configuration: RuntimeConfiguration
 
     @property
     def dtype(self) -> np.dtype:
@@ -220,8 +249,8 @@ class ArrayMetadata:
     chunk_grid: RegularChunkGridMetadata
     chunk_key_encoding: ChunkKeyEncodingMetadata
     fill_value: Any
+    codecs: List[CodecMetadata]
     attributes: Dict[str, Any] = field(factory=dict)
-    codecs: Optional[List[CodecMetadata]] = None
     dimension_names: Optional[Tuple[str, ...]] = None
     zarr_format: Literal[3] = 3
     node_type: Literal["array"] = "array"
@@ -229,6 +258,29 @@ class ArrayMetadata:
     @property
     def dtype(self) -> np.dtype:
         return np.dtype(self.data_type.value)
+
+    def get_core_metadata(
+        self, runtime_configuration: RuntimeConfiguration
+    ) -> CoreArrayMetadata:
+        return CoreArrayMetadata(
+            shape=self.shape,
+            chunk_shape=self.chunk_grid.configuration.chunk_shape,
+            data_type=self.data_type,
+            fill_value=self.fill_value,
+            runtime_configuration=runtime_configuration,
+        )
+
+    def to_bytes(self) -> bytes:
+        def _json_convert(o):
+            if isinstance(o, DataType):
+                return o.name
+            raise TypeError
+
+        return json.dumps(asdict(self), default=_json_convert).encode()
+
+    @classmethod
+    def from_json(cls, zarr_json: Any) -> ArrayMetadata:
+        return make_cattr().structure(zarr_json, cls)
 
 
 @frozen
@@ -242,3 +294,18 @@ class ArrayV2Metadata:
     dimension_separator: Literal[".", "/"] = "."
     compressor: Optional[Dict[str, Any]] = None
     zarr_format: Literal[2] = 2
+
+    def to_bytes(self) -> bytes:
+        def _json_convert(o):
+            if isinstance(o, np.dtype):
+                if o.fields is None:
+                    return o.str
+                else:
+                    return o.descr
+            raise TypeError
+
+        return json.dumps(asdict(self), default=_json_convert).encode()
+
+    @classmethod
+    def from_json(cls, zarr_json: Any) -> ArrayV2Metadata:
+        return make_cattr().structure(zarr_json, cls)

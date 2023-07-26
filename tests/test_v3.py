@@ -1,6 +1,6 @@
 from pathlib import Path
 from shutil import rmtree
-from typing import Iterator, List, Literal
+from typing import Iterator, List, Literal, Optional
 
 import numpy as np
 import pytest
@@ -45,6 +45,7 @@ def test_sharding(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -72,6 +73,7 @@ def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -102,6 +104,7 @@ def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -126,6 +129,7 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -140,6 +144,30 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
     data = data + 10
     a[:10, :10, :10] = data
     read_data = a[0:10, 0:10, 0:10]
+    assert np.array_equal(data, read_data)
+
+
+def test_nested_sharding(store: Store, l4_sample_data: np.ndarray):
+    data = l4_sample_data
+
+    a = Array.create(
+        store / "l4_sample" / "color" / "1",
+        shape=data.shape,
+        chunk_shape=(64, 64, 64),
+        dtype=data.dtype,
+        fill_value=0,
+        codecs=[
+            codecs.sharding_codec(
+                (32, 32, 32),
+                [codecs.sharding_codec((16, 16, 16))],
+            )
+        ],
+    )
+
+    a[:, :, :] = data
+
+    read_data = a[0 : data.shape[0], 0 : data.shape[1], 0 : data.shape[2]]
+    assert data.shape == read_data.shape
     assert np.array_equal(data, read_data)
 
 
@@ -160,9 +188,14 @@ async def test_order(
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
 
     codecs_: List[CodecMetadata] = (
-        [codecs.sharding_codec((8, 8), codecs=[codecs.transpose_codec(store_order)])]
+        [
+            codecs.sharding_codec(
+                (8, 8),
+                codecs=[codecs.transpose_codec(store_order), codecs.endian_codec()],
+            )
+        ]
         if with_sharding
-        else [codecs.transpose_codec(store_order)]
+        else [codecs.transpose_codec(store_order), codecs.endian_codec()]
     )
 
     a = await Array.create_async(
@@ -224,8 +257,8 @@ def test_order_implicit(
 ):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
 
-    codecs_: List[CodecMetadata] = (
-        [codecs.sharding_codec((8, 8))] if with_sharding else []
+    codecs_: Optional[List[CodecMetadata]] = (
+        [codecs.sharding_codec((8, 8))] if with_sharding else None
     )
 
     a = Array.create(
@@ -277,7 +310,11 @@ def test_open_sharding(store: Store):
         codecs=[
             codecs.sharding_codec(
                 (8, 8),
-                [codecs.transpose_codec("F"), codecs.blosc_codec(typesize=4)],
+                [
+                    codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
+                    codecs.blosc_codec(typesize=4),
+                ],
             )
         ],
     )
@@ -398,7 +435,10 @@ def test_write_partial_sharded_chunks(store: Store):
         codecs=[
             codecs.sharding_codec(
                 chunk_shape=(10, 10),
-                codecs=[codecs.blosc_codec(typesize=data.dtype.itemsize)],
+                codecs=[
+                    codecs.endian_codec(),
+                    codecs.blosc_codec(typesize=data.dtype.itemsize),
+                ],
             )
         ],
     )
@@ -501,7 +541,7 @@ async def test_zarr_compat_F(store: Store):
         dtype=data.dtype,
         chunk_key_encoding=("v2", "."),
         fill_value=1,
-        codecs=[codecs.transpose_codec("F")],
+        codecs=[codecs.transpose_codec("F"), codecs.endian_codec()],
     )
 
     z2 = zarr.create(
@@ -570,7 +610,7 @@ def test_gzip(store: Store):
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[codecs.gzip_codec()],
+        codecs=[codecs.endian_codec(), codecs.gzip_codec()],
     )
 
     a[:, :] = data
@@ -758,3 +798,36 @@ def test_exists_ok(store: Store):
         dtype=np.dtype("uint8"),
         exists_ok=True,
     )
+
+
+def test_update_attributes_array(store: Store):
+    data = np.zeros((16, 18), dtype="uint16")
+
+    a = Array.create(
+        store / "update_attributes",
+        shape=data.shape,
+        chunk_shape=(10, 10),
+        dtype=data.dtype,
+        fill_value=1,
+        attributes={"hello": "world"},
+    )
+
+    a = Array.open(store / "update_attributes")
+    assert a.metadata.attributes["hello"] == "world"
+
+    a.update_attributes({"hello": "zarrita"})
+
+    a = Array.open(store / "update_attributes")
+    assert a.metadata.attributes["hello"] == "zarrita"
+
+
+def test_update_attributes_group(store: Store):
+    g = Group.create(store / "update_attributes_group", attributes={"hello": "world"})
+
+    g = Group.open(store / "update_attributes_group")
+    assert g.metadata.attributes["hello"] == "world"
+
+    g.update_attributes({"hello": "zarrita"})
+
+    g = Group.open(store / "update_attributes_group")
+    assert g.metadata.attributes["hello"] == "zarrita"

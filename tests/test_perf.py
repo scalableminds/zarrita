@@ -11,8 +11,7 @@ import zarr
 from numcodecs import Blosc
 from pytest import fixture
 
-from zarrita import Array, LocalStore, Store, codecs
-from zarrita.array import runtime_configuration
+from zarrita import Array, LocalStore, Store, codecs, runtime_configuration
 
 TEST_SIZE = int(os.environ.get("TEST_SIZE", "1024"))
 CHUNK_SIZE = 32
@@ -72,6 +71,7 @@ def test_zarrita_sharding(store: Store, layer_name: str, testdata: np.ndarray):
                 (CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
                 [
                     codecs.transpose_codec("F"),
+                    codecs.endian_codec(),
                     codecs.blosc_codec(
                         cname="zstd",
                         clevel=5,

@@ -40,6 +40,7 @@ def make_cattr():
         BloscCodecMetadata,
         ChunkKeyEncodingMetadata,
         CodecMetadata,
+        Crc32cCodecMetadata,
         DefaultChunkKeyEncodingMetadata,
         EndianCodecMetadata,
         GzipCodecMetadata,
@@ -74,6 +75,8 @@ def make_cattr():
             return dataset_converter.structure(d, GzipCodecMetadata)
         if d["name"] == "sharding_indexed":
             return dataset_converter.structure(d, ShardingCodecMetadata)
+        if d["name"] == "crc32c":
+            return dataset_converter.structure(d, Crc32cCodecMetadata)
         raise KeyError
 
     dataset_converter.register_structure_hook(CodecMetadata, _structure_codec_metadata)
