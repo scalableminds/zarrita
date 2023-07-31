@@ -9,6 +9,8 @@ import zarrita
 import numpy as np
 
 store = zarrita.LocalStore('testoutput') # or zarrita.RemoteStore('s3://bucket/test')
+
+testdata = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
 ```
 
 ## Create an array
@@ -16,23 +18,23 @@ store = zarrita.LocalStore('testoutput') # or zarrita.RemoteStore('s3://bucket/t
 ```python
 a = zarrita.Array.create(
     store / 'array',
-    shape=(6, 10),
+    shape=(16, 16),
     dtype='int32',
-    chunk_shape=(2, 5),
+    chunk_shape=(2, 8),
     codecs=[
         zarrita.codecs.endian_codec(),
         zarrita.codecs.blosc_codec(typesize=4),
     ],
     attributes={'question': 'life', 'answer': 42}
 )
-a[:, :] = np.ones((6, 10), dtype='int32')
+a[:, :] = testdata
 ```
 
 ## Open an array
 
 ```python
 a = zarrita.Array.open(store / 'array')
-assert np.array_equal(a[:, :], np.ones((6, 10), dtype='int32'))
+assert np.array_equal(a[:, :], testdata)
 ```
 
 ## Create an array with sharding
@@ -54,9 +56,8 @@ a = zarrita.Array.create(
         ),
     ],
 )
-data = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
-a[:, :] = data
-assert np.array_equal(a[:, :], data)
+a[:, :] = testdata
+assert np.array_equal(a[:, :], testdata)
 ```
 
 ## Create a group
@@ -70,7 +71,7 @@ a = g2.create_array(
     dtype='int32',
     chunk_shape=(16, 16),
 )
-a[:, :] = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
+a[:, :] = testdata
 ```
 
 ## Open a group
@@ -79,7 +80,7 @@ a[:, :] = np.arange(0, 16 * 16, dtype='int32').reshape((16, 16))
 g = zarrita.Group.open(store / 'group')
 g2 = g['group2']
 a = g['group2']['array']
-assert np.array_equal(a[:, :], np.arange(0, 16 * 16, dtype='int32').reshape((16, 16)))
+assert np.array_equal(a[:, :], testdata)
 ```
 
 ## Resize array
@@ -99,11 +100,11 @@ a.update_attributes({'question': 'life', 'answer': 0})
 ```python
 a = zarrita.ArrayV2.create(
     store / 'array',
-    shape=(6, 10),
+    shape=(16, 16),
     dtype='int32',
-    chunks=(2, 5),
+    chunks=(2, 8),
 )
-a[:, :] = np.ones((6, 10), dtype='int32')
+a[:, :] = testdata
 
 a3 = a.convert_to_v3()
 assert a3.metadata.shape == a.shape
@@ -114,12 +115,12 @@ assert a3.metadata.shape == a.shape
 ```python
 a = await zarrita.Array.create_async(
     store / 'array_async',
-    shape=(6, 10),
+    shape=(16, 16),
     dtype='int32',
-    chunk_shape=(2, 5),
+    chunk_shape=(2, 8),
 )
-await a.async_[:, :].set(np.ones((6, 10), dtype='int32'))
-await a.async_[:, :].get()
+await a.async_[:, :].set(testdata)
+assert np.array_equal(await a.async_[:, :].get(), testdata)
 ```
 
 # Credits
