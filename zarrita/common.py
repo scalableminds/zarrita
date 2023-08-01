@@ -47,6 +47,7 @@ def make_cattr():
         ShardingCodecMetadata,
         TransposeCodecMetadata,
         V2ChunkKeyEncodingMetadata,
+        ZstdCodecMetadata,
     )
 
     dataset_converter = Converter()
@@ -73,6 +74,8 @@ def make_cattr():
             return dataset_converter.structure(d, TransposeCodecMetadata)
         if d["name"] == "gzip":
             return dataset_converter.structure(d, GzipCodecMetadata)
+        if d["name"] == "zstd":
+            return dataset_converter.structure(d, ZstdCodecMetadata)
         if d["name"] == "sharding_indexed":
             return dataset_converter.structure(d, ShardingCodecMetadata)
         if d["name"] == "crc32c":

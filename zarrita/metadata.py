@@ -202,6 +202,18 @@ class GzipCodecMetadata:
 
 
 @frozen
+class ZstdCodecConfigurationMetadata:
+    level: int = 0
+    checksum: bool = False
+
+
+@frozen
+class ZstdCodecMetadata:
+    configuration: ZstdCodecConfigurationMetadata
+    name: Literal["zstd"] = "zstd"
+
+
+@frozen
 class Crc32cCodecMetadata:
     name: Literal["crc32c"] = "crc32c"
 
@@ -224,6 +236,7 @@ CodecMetadata = Union[
     EndianCodecMetadata,
     TransposeCodecMetadata,
     GzipCodecMetadata,
+    ZstdCodecMetadata,
     ShardingCodecMetadata,
     Crc32cCodecMetadata,
 ]

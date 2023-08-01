@@ -617,6 +617,23 @@ def test_gzip(store: Store):
     assert np.array_equal(data, a[:, :])
 
 
+@pytest.mark.parametrize("checksum", [True, False])
+def test_zstd(store: Store, checksum: bool):
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
+
+    a = Array.create(
+        store / "zstd",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=0,
+        codecs=[codecs.endian_codec(), codecs.zstd_codec(level=0, checksum=checksum)],
+    )
+
+    a[:, :] = data
+    assert np.array_equal(data, a[:, :])
+
+
 @pytest.mark.parametrize("endian", ["big", "little"])
 @pytest.mark.asyncio
 async def test_endian(store: Store, endian: Literal["big", "little"]):

@@ -12,6 +12,7 @@ from attr import asdict, frozen
 from crc32c import crc32c
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
+from zstandard import ZstdCompressor, ZstdDecompressor
 
 from zarrita.common import BytesLike, to_thread
 from zarrita.metadata import (
@@ -27,6 +28,8 @@ from zarrita.metadata import (
     ShardingCodecMetadata,
     TransposeCodecConfigurationMetadata,
     TransposeCodecMetadata,
+    ZstdCodecConfigurationMetadata,
+    ZstdCodecMetadata,
 )
 
 if TYPE_CHECKING:
@@ -111,6 +114,8 @@ class CodecPipeline:
                 out.append(BloscCodec.from_metadata(codec_metadata, array_metadata))
             elif codec_metadata.name == "gzip":
                 out.append(GzipCodec.from_metadata(codec_metadata, array_metadata))
+            elif codec_metadata.name == "zstd":
+                out.append(ZstdCodec.from_metadata(codec_metadata, array_metadata))
             elif codec_metadata.name == "transpose":
                 out.append(TransposeCodec.from_metadata(codec_metadata, array_metadata))
             elif codec_metadata.name == "endian":
@@ -417,6 +422,47 @@ class GzipCodec(BytesBytesCodec):
 
 
 @frozen
+class ZstdCodec(BytesBytesCodec):
+    array_metadata: CoreArrayMetadata
+    configuration: ZstdCodecConfigurationMetadata
+    is_fixed_size = True
+
+    @classmethod
+    def from_metadata(
+        cls, codec_metadata: ZstdCodecMetadata, array_metadata: CoreArrayMetadata
+    ) -> ZstdCodec:
+        return cls(
+            array_metadata=array_metadata,
+            configuration=codec_metadata.configuration,
+        )
+
+    def _compress(self, data: bytes) -> bytes:
+        ctx = ZstdCompressor(
+            level=self.configuration.level, write_checksum=self.configuration.checksum
+        )
+        return ctx.compress(data)
+
+    def _decompress(self, data: bytes) -> bytes:
+        ctx = ZstdDecompressor()
+        return ctx.decompress(data)
+
+    async def decode(
+        self,
+        chunk_bytes: bytes,
+    ) -> BytesLike:
+        return await to_thread(self._decompress, chunk_bytes)
+
+    async def encode(
+        self,
+        chunk_bytes: bytes,
+    ) -> Optional[BytesLike]:
+        return await to_thread(self._compress, chunk_bytes)
+
+    def compute_encoded_size(self, _input_byte_length: int) -> int:
+        raise NotImplementedError
+
+
+@frozen
 class Crc32cCodec(BytesBytesCodec):
     array_metadata: CoreArrayMetadata
     is_fixed_size = True
@@ -479,6 +525,12 @@ def transpose_codec(
 
 def gzip_codec(level: int = 5) -> GzipCodecMetadata:
     return GzipCodecMetadata(configuration=GzipCodecConfigurationMetadata(level))
+
+
+def zstd_codec(level: int = 0, checksum: bool = False) -> ZstdCodecMetadata:
+    return ZstdCodecMetadata(
+        configuration=ZstdCodecConfigurationMetadata(level, checksum)
+    )
 
 
 def crc32c_codec() -> Crc32cCodecMetadata:
