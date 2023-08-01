@@ -185,12 +185,12 @@ async def test_order(
     runtime_read_order: Literal["F", "C"],
     with_sharding: bool,
 ):
-    data = np.arange(0, 256, dtype="uint16").reshape((16, 16), order=input_order)
+    data = np.arange(0, 256, dtype="uint16").reshape((32, 8), order=input_order)
 
     codecs_: List[CodecMetadata] = (
         [
             codecs.sharding_codec(
-                (8, 8),
+                (16, 8),
                 codecs=[codecs.transpose_codec(store_order), codecs.endian_codec()],
             )
         ]
@@ -201,7 +201,7 @@ async def test_order(
     a = await Array.create_async(
         store / "order",
         shape=data.shape,
-        chunk_shape=(16, 16),
+        chunk_shape=(32, 8),
         dtype=data.dtype,
         fill_value=0,
         chunk_key_encoding=("v2", "."),
@@ -231,7 +231,7 @@ async def test_order(
         # Compare with zarr-python
         z = zarr.create(
             shape=data.shape,
-            chunks=(16, 16),
+            chunks=(32, 8),
             dtype="<u2",
             order=store_order,
             compressor=None,

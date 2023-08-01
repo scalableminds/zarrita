@@ -372,7 +372,9 @@ class TransposeCodec(ArrayArrayCodec):
         if isinstance(new_order, tuple):
             chunk_array = chunk_array.transpose(new_order)
         elif new_order == "F":
-            chunk_array = chunk_array.T
+            chunk_array = chunk_array.ravel().reshape(
+                self.array_metadata.chunk_shape, order="F"
+            )
         return chunk_array
 
     async def encode(
