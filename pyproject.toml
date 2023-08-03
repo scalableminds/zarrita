@@ -27,7 +27,7 @@ zarr = "^2.14.2"
 pytest-asyncio = "^0.21.0"
 ruff = "^0.0.271"
 s3fs = ">=2022.0.0"
-universal_pathlib = "^0.0.23"
+universal_pathlib = "^0.1.0"
 
 [tool.isort]
 profile = "black"

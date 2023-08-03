@@ -68,8 +68,13 @@ class Store:
     def from_path(cls, pth: Path) -> Store:
         try:
             from upath import UPath
+            from upath.implementations.local import PosixUPath, WindowsUPath
 
-            if isinstance(pth, UPath):
+            if (
+                isinstance(pth, UPath)
+                and not isinstance(pth, PosixUPath)
+                and not isinstance(pth, WindowsUPath)
+            ):
                 storage_options = pth._kwargs.copy()
                 storage_options.pop("_url", None)
                 return RemoteStore(str(pth), **storage_options)
