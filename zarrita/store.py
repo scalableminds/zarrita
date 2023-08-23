@@ -70,10 +70,8 @@ class Store:
             from upath import UPath
             from upath.implementations.local import PosixUPath, WindowsUPath
 
-            if (
-                isinstance(pth, UPath)
-                and not isinstance(pth, PosixUPath)
-                and not isinstance(pth, WindowsUPath)
+            if isinstance(pth, UPath) and not isinstance(
+                pth, (PosixUPath, WindowsUPath)
             ):
                 storage_options = pth._kwargs.copy()
                 storage_options.pop("_url", None)
