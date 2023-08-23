@@ -45,7 +45,7 @@ def test_sharding(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.endian_codec(),
+                    codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -73,7 +73,7 @@ def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.endian_codec(),
+                    codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -104,7 +104,7 @@ def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.endian_codec(),
+                    codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -129,7 +129,7 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
                 (32, 32, 32),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.endian_codec(),
+                    codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
             )
@@ -191,11 +191,11 @@ async def test_order(
         [
             codecs.sharding_codec(
                 (16, 8),
-                codecs=[codecs.transpose_codec(store_order), codecs.endian_codec()],
+                codecs=[codecs.transpose_codec(store_order), codecs.bytes_codec()],
             )
         ]
         if with_sharding
-        else [codecs.transpose_codec(store_order), codecs.endian_codec()]
+        else [codecs.transpose_codec(store_order), codecs.bytes_codec()]
     )
 
     a = await Array.create_async(
@@ -312,7 +312,7 @@ def test_open_sharding(store: Store):
                 (8, 8),
                 [
                     codecs.transpose_codec("F"),
-                    codecs.endian_codec(),
+                    codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=4),
                 ],
             )
@@ -436,7 +436,7 @@ def test_write_partial_sharded_chunks(store: Store):
             codecs.sharding_codec(
                 chunk_shape=(10, 10),
                 codecs=[
-                    codecs.endian_codec(),
+                    codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize),
                 ],
             )
@@ -541,7 +541,7 @@ async def test_zarr_compat_F(store: Store):
         dtype=data.dtype,
         chunk_key_encoding=("v2", "."),
         fill_value=1,
-        codecs=[codecs.transpose_codec("F"), codecs.endian_codec()],
+        codecs=[codecs.transpose_codec("F"), codecs.bytes_codec()],
     )
 
     z2 = zarr.create(
@@ -610,7 +610,7 @@ def test_gzip(store: Store):
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[codecs.endian_codec(), codecs.gzip_codec()],
+        codecs=[codecs.bytes_codec(), codecs.gzip_codec()],
     )
 
     a[:, :] = data
@@ -627,7 +627,7 @@ def test_zstd(store: Store, checksum: bool):
         chunk_shape=(16, 16),
         dtype=data.dtype,
         fill_value=0,
-        codecs=[codecs.endian_codec(), codecs.zstd_codec(level=0, checksum=checksum)],
+        codecs=[codecs.bytes_codec(), codecs.zstd_codec(level=0, checksum=checksum)],
     )
 
     a[:, :] = data
@@ -646,7 +646,7 @@ async def test_endian(store: Store, endian: Literal["big", "little"]):
         dtype=data.dtype,
         fill_value=0,
         chunk_key_encoding=("v2", "."),
-        codecs=[codecs.endian_codec(endian)],
+        codecs=[codecs.bytes_codec(endian)],
     )
 
     await a.async_[:, :].set(data)
@@ -685,7 +685,7 @@ async def test_endian_write(
         dtype="uint16",
         fill_value=0,
         chunk_key_encoding=("v2", "."),
-        codecs=[codecs.endian_codec(dtype_store_endian)],
+        codecs=[codecs.bytes_codec(dtype_store_endian)],
     )
 
     await a.async_[:, :].set(data)
@@ -725,7 +725,7 @@ def test_invalid_metadata(store: Store):
             dtype=np.dtype("uint8"),
             fill_value=0,
             codecs=[
-                codecs.endian_codec("big"),
+                codecs.bytes_codec("big"),
                 codecs.transpose_codec("F"),
             ],
         )

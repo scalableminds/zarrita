@@ -169,13 +169,13 @@ class BloscCodecMetadata:
 
 
 @frozen
-class EndianCodecConfigurationMetadata:
-    endian: Literal["big", "little"] = "little"
+class BytesCodecConfigurationMetadata:
+    endian: Optional[Literal["big", "little"]] = "little"
 
 
 @frozen
-class EndianCodecMetadata:
-    configuration: EndianCodecConfigurationMetadata
+class BytesCodecMetadata:
+    configuration: BytesCodecConfigurationMetadata
     name: Literal["endian"] = "endian"
 
 
@@ -233,7 +233,7 @@ class ShardingCodecMetadata:
 
 CodecMetadata = Union[
     BloscCodecMetadata,
-    EndianCodecMetadata,
+    BytesCodecMetadata,
     TransposeCodecMetadata,
     GzipCodecMetadata,
     ZstdCodecMetadata,

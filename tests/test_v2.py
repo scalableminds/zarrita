@@ -10,7 +10,7 @@ import zarr
 from pytest import fixture
 
 from zarrita import Array, ArrayV2, Group, GroupV2, LocalStore, Store, open_auto_async
-from zarrita.codecs import BloscCodec, EndianCodec, TransposeCodec
+from zarrita.codecs import BloscCodec, BytesCodec, TransposeCodec
 
 
 @fixture
@@ -458,7 +458,7 @@ def test_convert_to_v3_array(store: Store):
         for c in a3.codec_pipeline.codecs
     )
     assert any(
-        isinstance(c, EndianCodec) and c.configuration.endian == "little"
+        isinstance(c, BytesCodec) and c.configuration.endian == "little"
         for c in a3.codec_pipeline.codecs
     )
     assert any(

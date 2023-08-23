@@ -5,10 +5,9 @@ from functools import reduce
 from typing import TYPE_CHECKING, Iterable, List, Literal, Optional, Tuple, Union
 from warnings import warn
 
-import attr
 import numcodecs
 import numpy as np
-from attr import asdict, frozen
+from attr import asdict, evolve, frozen
 from crc32c import crc32c
 from numcodecs.blosc import Blosc
 from numcodecs.gzip import GZip
@@ -18,10 +17,10 @@ from zarrita.common import BytesLike, to_thread
 from zarrita.metadata import (
     BloscCodecConfigurationMetadata,
     BloscCodecMetadata,
+    BytesCodecConfigurationMetadata,
+    BytesCodecMetadata,
     CodecMetadata,
     Crc32cCodecMetadata,
-    EndianCodecConfigurationMetadata,
-    EndianCodecMetadata,
     GzipCodecConfigurationMetadata,
     GzipCodecMetadata,
     ShardingCodecConfigurationMetadata,
@@ -110,6 +109,9 @@ class CodecPipeline:
     ) -> CodecPipeline:
         out: List[Codec] = []
         for codec_metadata in codecs_metadata or []:
+            if codec_metadata.name == "endian":
+                codec_metadata = evolve(codec_metadata, name="bytes")  # type: ignore
+
             if codec_metadata.name == "blosc":
                 out.append(BloscCodec.from_metadata(codec_metadata, array_metadata))
             elif codec_metadata.name == "gzip":
@@ -118,8 +120,8 @@ class CodecPipeline:
                 out.append(ZstdCodec.from_metadata(codec_metadata, array_metadata))
             elif codec_metadata.name == "transpose":
                 out.append(TransposeCodec.from_metadata(codec_metadata, array_metadata))
-            elif codec_metadata.name == "endian":
-                out.append(EndianCodec.from_metadata(codec_metadata, array_metadata))
+            elif codec_metadata.name == "bytes":
+                out.append(BytesCodec.from_metadata(codec_metadata, array_metadata))
             elif codec_metadata.name == "crc32c":
                 out.append(Crc32cCodec.from_metadata(codec_metadata, array_metadata))
             elif codec_metadata.name == "sharding_indexed":
@@ -259,7 +261,7 @@ class BloscCodec(BytesBytesCodec):
     ) -> BloscCodec:
         configuration = codec_metadata.configuration
         if configuration.typesize == 0:
-            configuration = attr.evolve(
+            configuration = evolve(
                 configuration, typesize=array_metadata.data_type.byte_count
             )
         config_dict = asdict(codec_metadata.configuration)
@@ -290,15 +292,19 @@ class BloscCodec(BytesBytesCodec):
 
 
 @frozen
-class EndianCodec(ArrayBytesCodec):
+class BytesCodec(ArrayBytesCodec):
     array_metadata: CoreArrayMetadata
-    configuration: EndianCodecConfigurationMetadata
+    configuration: BytesCodecConfigurationMetadata
     is_fixed_size = True
 
     @classmethod
     def from_metadata(
-        cls, codec_metadata: EndianCodecMetadata, array_metadata: CoreArrayMetadata
-    ) -> EndianCodec:
+        cls, codec_metadata: BytesCodecMetadata, array_metadata: CoreArrayMetadata
+    ) -> BytesCodec:
+        assert (
+            array_metadata.dtype.itemsize == 1
+            or codec_metadata.configuration.endian is not None
+        )
         return cls(
             array_metadata=array_metadata,
             configuration=codec_metadata.configuration,
@@ -318,13 +324,16 @@ class EndianCodec(ArrayBytesCodec):
         self,
         chunk_bytes: BytesLike,
     ) -> np.ndarray:
-        if self.configuration.endian == "little":
-            prefix = "<"
+        if self.array_metadata.dtype.itemsize > 0:
+            if self.configuration.endian == "little":
+                prefix = "<"
+            else:
+                prefix = ">"
+            dtype = np.dtype(
+                f"{prefix}{self.array_metadata.data_type.to_numpy_shortname()}"
+            )
         else:
-            prefix = ">"
-        dtype = np.dtype(
-            f"{prefix}{self.array_metadata.data_type.to_numpy_shortname()}"
-        )
+            dtype = np.dtype(f"|{self.array_metadata.data_type.to_numpy_shortname()}")
         chunk_array = np.frombuffer(chunk_bytes, dtype)
 
         # ensure correct chunk shape
@@ -338,10 +347,11 @@ class EndianCodec(ArrayBytesCodec):
         self,
         chunk_array: np.ndarray,
     ) -> Optional[BytesLike]:
-        byteorder = self._get_byteorder(chunk_array)
-        if self.configuration.endian != byteorder:
-            new_dtype = chunk_array.dtype.newbyteorder(self.configuration.endian)
-            chunk_array = chunk_array.astype(new_dtype)
+        if chunk_array.dtype.itemsize > 1:
+            byteorder = self._get_byteorder(chunk_array)
+            if self.configuration.endian != byteorder:
+                new_dtype = chunk_array.dtype.newbyteorder(self.configuration.endian)
+                chunk_array = chunk_array.astype(new_dtype)
         return chunk_array.tobytes()
 
     def compute_encoded_size(self, input_byte_length: int) -> int:
@@ -513,8 +523,10 @@ def blosc_codec(
     )
 
 
-def endian_codec(endian: Literal["big", "little"] = "little") -> EndianCodecMetadata:
-    return EndianCodecMetadata(configuration=EndianCodecConfigurationMetadata(endian))
+def bytes_codec(
+    endian: Optional[Literal["big", "little"]] = "little"
+) -> BytesCodecMetadata:
+    return BytesCodecMetadata(configuration=BytesCodecConfigurationMetadata(endian))
 
 
 def transpose_codec(
@@ -544,8 +556,8 @@ def sharding_codec(
     codecs: Optional[List[CodecMetadata]] = None,
     index_codecs: Optional[List[CodecMetadata]] = None,
 ) -> ShardingCodecMetadata:
-    codecs = codecs or [endian_codec()]
-    index_codecs = index_codecs or [endian_codec(), crc32c_codec()]
+    codecs = codecs or [bytes_codec()]
+    index_codecs = index_codecs or [bytes_codec(), crc32c_codec()]
     return ShardingCodecMetadata(
         configuration=ShardingCodecConfigurationMetadata(
             chunk_shape, codecs, index_codecs

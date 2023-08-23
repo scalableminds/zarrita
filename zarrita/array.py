@@ -7,7 +7,7 @@ import numpy as np
 from attr import evolve, frozen
 
 from zarrita.array_v2 import ArrayV2
-from zarrita.codecs import CodecMetadata, CodecPipeline, endian_codec
+from zarrita.codecs import CodecMetadata, CodecPipeline, bytes_codec
 from zarrita.common import (
     ZARR_JSON,
     ChunkCoords,
@@ -95,7 +95,7 @@ class Array:
             else DataType[dtype_to_data_type[dtype.str]]
         )
 
-        codecs = list(codecs) if codecs is not None else [endian_codec()]
+        codecs = list(codecs) if codecs is not None else [bytes_codec()]
 
         metadata = ArrayMetadata(
             shape=shape,

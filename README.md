@@ -22,7 +22,7 @@ a = zarrita.Array.create(
     dtype='int32',
     chunk_shape=(2, 8),
     codecs=[
-        zarrita.codecs.endian_codec(),
+        zarrita.codecs.bytes_codec(),
         zarrita.codecs.blosc_codec(typesize=4),
     ],
     attributes={'question': 'life', 'answer': 42}
@@ -50,7 +50,7 @@ a = zarrita.Array.create(
         zarrita.codecs.sharding_codec(
             chunk_shape=(8, 8),
             codecs=[
-                zarrita.codecs.endian_codec(),
+                zarrita.codecs.bytes_codec(),
                 zarrita.codecs.blosc_codec(typesize=4),
             ]
         ),
