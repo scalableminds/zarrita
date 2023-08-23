@@ -38,11 +38,11 @@ Selection = Union[slice, SliceSelection]
 def make_cattr():
     from zarrita.metadata import (
         BloscCodecMetadata,
+        BytesCodecMetadata,
         ChunkKeyEncodingMetadata,
         CodecMetadata,
         Crc32cCodecMetadata,
         DefaultChunkKeyEncodingMetadata,
-        EndianCodecMetadata,
         GzipCodecMetadata,
         ShardingCodecMetadata,
         TransposeCodecMetadata,
@@ -68,8 +68,8 @@ def make_cattr():
     def _structure_codec_metadata(d: Dict[str, Any], _t=None) -> CodecMetadata:
         if d["name"] == "blosc":
             return dataset_converter.structure(d, BloscCodecMetadata)
-        if d["name"] == "endian":
-            return dataset_converter.structure(d, EndianCodecMetadata)
+        if d["name"] == "bytes" or d["name"] == "endian":
+            return dataset_converter.structure(d, BytesCodecMetadata)
         if d["name"] == "transpose":
             return dataset_converter.structure(d, TransposeCodecMetadata)
         if d["name"] == "gzip":

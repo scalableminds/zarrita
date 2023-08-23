@@ -458,10 +458,10 @@ class ArrayV2:
             ArrayMetadata,
             BloscCodecConfigurationMetadata,
             BloscCodecMetadata,
+            BytesCodecConfigurationMetadata,
+            BytesCodecMetadata,
             CodecMetadata,
             DataType,
-            EndianCodecConfigurationMetadata,
-            EndianCodecMetadata,
             GzipCodecConfigurationMetadata,
             GzipCodecMetadata,
             RegularChunkGridConfigurationMetadata,
@@ -496,8 +496,8 @@ class ArrayV2:
                 )
             )
         codecs.append(
-            EndianCodecMetadata(
-                configuration=EndianCodecConfigurationMetadata(endian=endian)
+            BytesCodecMetadata(
+                configuration=BytesCodecConfigurationMetadata(endian=endian)
             )
         )
 
