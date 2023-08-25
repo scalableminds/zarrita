@@ -176,7 +176,7 @@ class BytesCodecConfigurationMetadata:
 @frozen
 class BytesCodecMetadata:
     configuration: BytesCodecConfigurationMetadata
-    name: Literal["endian"] = "endian"
+    name: Literal["bytes"] = "bytes"
 
 
 @frozen

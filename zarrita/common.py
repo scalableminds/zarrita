@@ -4,7 +4,6 @@ import asyncio
 import contextvars
 import functools
 from typing import (
-    TYPE_CHECKING,
     Any,
     Awaitable,
     Callable,
@@ -19,10 +18,6 @@ from typing import (
 
 import numpy as np
 from cattr import Converter
-
-if TYPE_CHECKING:
-    pass
-
 
 ZARR_JSON = "zarr.json"
 ZARRAY_JSON = ".zarray"

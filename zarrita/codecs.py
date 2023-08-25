@@ -304,7 +304,7 @@ class BytesCodec(ArrayBytesCodec):
         assert (
             array_metadata.dtype.itemsize == 1
             or codec_metadata.configuration.endian is not None
-        )
+        ), "The `endian` configuration needs to be specified for multi-byte data types."
         return cls(
             array_metadata=array_metadata,
             configuration=codec_metadata.configuration,
