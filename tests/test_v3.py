@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from shutil import rmtree
 from typing import Iterator, List, Literal, Optional
@@ -573,10 +574,11 @@ async def test_zarr_compat_F(store: Store):
     )
 
 
-def test_dimension_names(store: Store):
+@pytest.mark.asyncio
+async def test_dimension_names(store: Store):
     data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
 
-    Array.create(
+    await Array.create_async(
         store / "dimension_names",
         shape=data.shape,
         chunk_shape=(16, 16),
@@ -585,12 +587,14 @@ def test_dimension_names(store: Store):
         dimension_names=("x", "y"),
     )
 
-    assert Array.open(store / "dimension_names").metadata.dimension_names == (
+    assert (
+        await Array.open_async(store / "dimension_names")
+    ).metadata.dimension_names == (
         "x",
         "y",
     )
 
-    Array.create(
+    await Array.create_async(
         store / "dimension_names2",
         shape=data.shape,
         chunk_shape=(16, 16),
@@ -598,7 +602,12 @@ def test_dimension_names(store: Store):
         fill_value=0,
     )
 
-    assert Array.open(store / "dimension_names2").metadata.dimension_names is None
+    assert (
+        await Array.open_async(store / "dimension_names2")
+    ).metadata.dimension_names is None
+    zarr_json_bytes = await (store / "dimension_names2" / "zarr.json").get_async()
+    assert zarr_json_bytes is not None
+    assert "dimension_names" not in json.loads(zarr_json_bytes)
 
 
 def test_gzip(store: Store):

@@ -45,41 +45,44 @@ def make_cattr():
         ZstdCodecMetadata,
     )
 
-    dataset_converter = Converter()
+    converter = Converter()
 
     def _structure_chunk_key_encoding_metadata(
         d: Dict[str, Any], _t
     ) -> ChunkKeyEncodingMetadata:
         if d["name"] == "default":
-            return dataset_converter.structure(d, DefaultChunkKeyEncodingMetadata)
+            return converter.structure(d, DefaultChunkKeyEncodingMetadata)
         if d["name"] == "v2":
-            return dataset_converter.structure(d, V2ChunkKeyEncodingMetadata)
+            return converter.structure(d, V2ChunkKeyEncodingMetadata)
         raise KeyError
 
-    dataset_converter.register_structure_hook(
+    converter.register_structure_hook(
         ChunkKeyEncodingMetadata, _structure_chunk_key_encoding_metadata
     )
 
     def _structure_codec_metadata(d: Dict[str, Any], _t=None) -> CodecMetadata:
+        if d["name"] == "endian":
+            d["name"] = "bytes"
+
         if d["name"] == "blosc":
-            return dataset_converter.structure(d, BloscCodecMetadata)
-        if d["name"] == "bytes" or d["name"] == "endian":
-            return dataset_converter.structure(d, BytesCodecMetadata)
+            return converter.structure(d, BloscCodecMetadata)
+        if d["name"] == "bytes":
+            return converter.structure(d, BytesCodecMetadata)
         if d["name"] == "transpose":
-            return dataset_converter.structure(d, TransposeCodecMetadata)
+            return converter.structure(d, TransposeCodecMetadata)
         if d["name"] == "gzip":
-            return dataset_converter.structure(d, GzipCodecMetadata)
+            return converter.structure(d, GzipCodecMetadata)
         if d["name"] == "zstd":
-            return dataset_converter.structure(d, ZstdCodecMetadata)
+            return converter.structure(d, ZstdCodecMetadata)
         if d["name"] == "sharding_indexed":
-            return dataset_converter.structure(d, ShardingCodecMetadata)
+            return converter.structure(d, ShardingCodecMetadata)
         if d["name"] == "crc32c":
-            return dataset_converter.structure(d, Crc32cCodecMetadata)
+            return converter.structure(d, Crc32cCodecMetadata)
         raise KeyError
 
-    dataset_converter.register_structure_hook(CodecMetadata, _structure_codec_metadata)
+    converter.register_structure_hook(CodecMetadata, _structure_codec_metadata)
 
-    dataset_converter.register_structure_hook_factory(
+    converter.register_structure_hook_factory(
         lambda t: str(t) == "ForwardRef('CodecMetadata')",
         lambda t: _structure_codec_metadata,
     )
@@ -93,7 +96,7 @@ def make_cattr():
             return tuple(d)
         raise KeyError
 
-    dataset_converter.register_structure_hook_factory(
+    converter.register_structure_hook_factory(
         lambda t: str(t)
         == "typing.Union[typing.Literal['C', 'F'], typing.Tuple[int, ...]]",
         lambda t: _structure_order,
@@ -113,18 +116,18 @@ def make_cattr():
             pass
         raise ValueError
 
-    dataset_converter.register_structure_hook_factory(
+    converter.register_structure_hook_factory(
         lambda t: str(t) == "typing.Union[NoneType, int, float]",
         lambda t: _structure_fill_value,
     )
 
     # Needed for v2 dtype
-    dataset_converter.register_structure_hook(
+    converter.register_structure_hook(
         np.dtype,
         lambda d, _: np.dtype(d),
     )
 
-    return dataset_converter
+    return converter
 
 
 def product(tup: ChunkCoords) -> int:

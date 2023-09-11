@@ -289,7 +289,14 @@ class ArrayMetadata:
                 return o.name
             raise TypeError
 
-        return json.dumps(asdict(self), default=_json_convert).encode()
+        return json.dumps(
+            asdict(
+                self,
+                filter=lambda attr, value: attr.name != "dimension_names"
+                or value is not None,
+            ),
+            default=_json_convert,
+        ).encode()
 
     @classmethod
     def from_json(cls, zarr_json: Any) -> ArrayMetadata:
