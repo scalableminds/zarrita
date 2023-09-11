@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "zarrita"
-version = "0.1.0a19"
+version = "0.1.0a20"
 description = ""
 authors = ["Norman Rzepka <code@normanrz.com>"]
 license = "MIT"
