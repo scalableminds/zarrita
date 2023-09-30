@@ -72,6 +72,7 @@ class DataType(Enum):
 
 
 dtype_to_data_type = {
+    "|b1": "bool",
     "bool": "bool",
     "|i1": "int8",
     "<i2": "int16",

@@ -338,6 +338,41 @@ def test_simple(store: Store):
     assert np.array_equal(data, a[:, :])
 
 
+def test_fill_value(store: Store):
+    data = np.arange(0, 256, dtype="uint16").reshape((16, 16))
+
+    a = Array.create(
+        store / "fill_value1",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+    )
+
+    assert a.metadata.fill_value == 0
+    assert np.array_equiv(0, a[:, :])
+
+    b = Array.create(
+        store / "fill_value2",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=np.dtype("bool"),
+    )
+
+    assert b.metadata.fill_value is False
+    assert np.array_equiv(False, b[:, :])
+
+    c = Array.create(
+        store / "fill_value3",
+        shape=data.shape,
+        chunk_shape=(16, 16),
+        dtype=data.dtype,
+        fill_value=4,
+    )
+
+    assert c.metadata.fill_value == 4
+    assert np.array_equiv(4, c[:, :])
+
+
 def test_morton(store: Store):
     assert list(morton_order_iter((2, 2))) == [(0, 0), (1, 0), (0, 1), (1, 1)]
     assert list(morton_order_iter((2, 2, 2))) == [

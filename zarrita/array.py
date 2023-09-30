@@ -97,6 +97,12 @@ class Array:
 
         codecs = list(codecs) if codecs is not None else [bytes_codec()]
 
+        if fill_value is None:
+            if data_type == DataType.bool:
+                fill_value = False
+            else:
+                fill_value = 0
+
         metadata = ArrayMetadata(
             shape=shape,
             data_type=data_type,
@@ -118,7 +124,7 @@ class Array:
                     )
                 )
             ),
-            fill_value=fill_value or 0,
+            fill_value=fill_value,
             codecs=codecs,
             dimension_names=tuple(dimension_names) if dimension_names else None,
             attributes=attributes or {},
