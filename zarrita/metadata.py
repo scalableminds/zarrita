@@ -255,6 +255,10 @@ class CoreArrayMetadata:
     def dtype(self) -> np.dtype:
         return np.dtype(self.data_type.value)
 
+    @property
+    def ndim(self) -> int:
+        return len(self.shape)
+
 
 @frozen
 class ArrayMetadata:
@@ -272,6 +276,10 @@ class ArrayMetadata:
     @property
     def dtype(self) -> np.dtype:
         return np.dtype(self.data_type.value)
+
+    @property
+    def ndim(self) -> int:
+        return len(self.shape)
 
     def get_core_metadata(
         self, runtime_configuration: RuntimeConfiguration
@@ -315,6 +323,10 @@ class ArrayV2Metadata:
     dimension_separator: Literal[".", "/"] = "."
     compressor: Optional[Dict[str, Any]] = None
     zarr_format: Literal[2] = 2
+
+    @property
+    def ndim(self) -> int:
+        return len(self.shape)
 
     def to_bytes(self) -> bytes:
         def _json_convert(o):
