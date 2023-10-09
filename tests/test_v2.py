@@ -454,7 +454,8 @@ def test_convert_to_v3_array(store: Store):
     assert a3.metadata.chunk_key_encoding.configuration.separator == "/"
     assert a3.metadata.attributes["hello"] == "world"
     assert any(
-        isinstance(c, TransposeCodec) and c.configuration.order == "F"
+        isinstance(c, TransposeCodec)
+        and c.order == tuple(a.metadata.ndim - x - 1 for x in range(a.metadata.ndim))
         for c in a3.codec_pipeline.codecs
     )
     assert any(

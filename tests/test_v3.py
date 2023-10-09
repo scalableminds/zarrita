@@ -289,6 +289,95 @@ def test_order_implicit(
         assert read_data.flags["C_CONTIGUOUS"]
 
 
+@pytest.mark.parametrize("input_order", ["F", "C"])
+@pytest.mark.parametrize("runtime_write_order", ["F", "C"])
+@pytest.mark.parametrize("runtime_read_order", ["F", "C"])
+@pytest.mark.parametrize("with_sharding", [True, False])
+@pytest.mark.asyncio
+async def test_transpose(
+    store: Store,
+    input_order: Literal["F", "C"],
+    runtime_write_order: Literal["F", "C"],
+    runtime_read_order: Literal["F", "C"],
+    with_sharding: bool,
+):
+    data = np.arange(0, 256, dtype="uint16").reshape((1, 32, 8), order=input_order)
+
+    codecs_: List[CodecMetadata] = (
+        [
+            codecs.sharding_codec(
+                (1, 16, 8),
+                codecs=[codecs.transpose_codec((2, 1, 0)), codecs.bytes_codec()],
+            )
+        ]
+        if with_sharding
+        else [codecs.transpose_codec((2, 1, 0)), codecs.bytes_codec()]
+    )
+
+    a = await Array.create_async(
+        store / "transpose",
+        shape=data.shape,
+        chunk_shape=(1, 32, 8),
+        dtype=data.dtype,
+        fill_value=0,
+        chunk_key_encoding=("v2", "."),
+        codecs=codecs_,
+        runtime_configuration=runtime_configuration(runtime_write_order),
+    )
+
+    await a.async_[:, :].set(data)
+    read_data = await a.async_[:, :].get()
+    assert np.array_equal(data, read_data)
+
+    a = await Array.open_async(
+        store / "transpose",
+        runtime_configuration=runtime_configuration(runtime_read_order),
+    )
+    read_data = await a.async_[:, :].get()
+    assert np.array_equal(data, read_data)
+
+    if runtime_read_order == "F":
+        assert read_data.flags["F_CONTIGUOUS"]
+        assert not read_data.flags["C_CONTIGUOUS"]
+    else:
+        assert not read_data.flags["F_CONTIGUOUS"]
+        assert read_data.flags["C_CONTIGUOUS"]
+
+    if not with_sharding:
+        # Compare with zarr-python
+        z = zarr.create(
+            shape=data.shape,
+            chunks=(1, 32, 8),
+            dtype="<u2",
+            order="F",
+            compressor=None,
+            fill_value=1,
+            store="testdata/transpose_zarr",
+        )
+        z[:, :] = data
+        assert await store.get_async("transpose/0.0") == await store.get_async(
+            "transpose_zarr/0.0"
+        )
+
+
+def test_transpose_invalid(
+    store: Store,
+):
+    data = np.arange(0, 256, dtype="uint16").reshape((1, 32, 8))
+
+    for order in [(1, 0), (3, 2, 1), (3, 3, 1)]:
+        with pytest.raises(AssertionError):
+            Array.create(
+                store / "transpose_invalid",
+                shape=data.shape,
+                chunk_shape=(1, 32, 8),
+                dtype=data.dtype,
+                fill_value=0,
+                chunk_key_encoding=("v2", "."),
+                codecs=[codecs.transpose_codec(order), codecs.bytes_codec()],
+            )
+
+
 def test_open(store: Store):
     a = Array.create(
         store / "open",
@@ -770,6 +859,18 @@ def test_invalid_metadata(store: Store):
             fill_value=0,
             codecs=[
                 codecs.bytes_codec("big"),
+                codecs.transpose_codec("F"),
+            ],
+        )
+
+    with pytest.raises(AssertionError):
+        Array.create(
+            store / "invalid",
+            shape=(16, 16),
+            chunk_shape=(16, 16),
+            dtype=np.dtype("uint8"),
+            fill_value=0,
+            codecs=[
                 codecs.transpose_codec("F"),
             ],
         )

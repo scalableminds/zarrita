@@ -48,6 +48,9 @@ class Codec(ABC):
     def compute_encoded_size(self, input_byte_length: int) -> int:
         pass
 
+    def resolve_metadata(self) -> CoreArrayMetadata:
+        return self.array_metadata
+
 
 class ArrayArrayCodec(Codec):
     @abstractmethod
@@ -112,24 +115,28 @@ class CodecPipeline:
             if codec_metadata.name == "endian":
                 codec_metadata = evolve(codec_metadata, name="bytes")  # type: ignore
 
+            codec: Codec
             if codec_metadata.name == "blosc":
-                out.append(BloscCodec.from_metadata(codec_metadata, array_metadata))
+                codec = BloscCodec.from_metadata(codec_metadata, array_metadata)
             elif codec_metadata.name == "gzip":
-                out.append(GzipCodec.from_metadata(codec_metadata, array_metadata))
+                codec = GzipCodec.from_metadata(codec_metadata, array_metadata)
             elif codec_metadata.name == "zstd":
-                out.append(ZstdCodec.from_metadata(codec_metadata, array_metadata))
+                codec = ZstdCodec.from_metadata(codec_metadata, array_metadata)
             elif codec_metadata.name == "transpose":
-                out.append(TransposeCodec.from_metadata(codec_metadata, array_metadata))
+                codec = TransposeCodec.from_metadata(codec_metadata, array_metadata)
             elif codec_metadata.name == "bytes":
-                out.append(BytesCodec.from_metadata(codec_metadata, array_metadata))
+                codec = BytesCodec.from_metadata(codec_metadata, array_metadata)
             elif codec_metadata.name == "crc32c":
-                out.append(Crc32cCodec.from_metadata(codec_metadata, array_metadata))
+                codec = Crc32cCodec.from_metadata(codec_metadata, array_metadata)
             elif codec_metadata.name == "sharding_indexed":
                 from zarrita.sharding import ShardingCodec
 
-                out.append(ShardingCodec.from_metadata(codec_metadata, array_metadata))
+                codec = ShardingCodec.from_metadata(codec_metadata, array_metadata)
             else:
                 raise RuntimeError(f"Unsupported codec: {codec_metadata}")
+
+            out.append(codec)
+            array_metadata = codec.resolve_metadata()
         CodecPipeline._validate_codecs(out, array_metadata)
         return cls(out)
 
@@ -361,42 +368,75 @@ class BytesCodec(ArrayBytesCodec):
 @frozen
 class TransposeCodec(ArrayArrayCodec):
     array_metadata: CoreArrayMetadata
-    configuration: TransposeCodecConfigurationMetadata
+    order: Tuple[int, ...]
     is_fixed_size = True
 
     @classmethod
     def from_metadata(
         cls, codec_metadata: TransposeCodecMetadata, array_metadata: CoreArrayMetadata
     ) -> TransposeCodec:
+        configuration = codec_metadata.configuration
+        if configuration.order == "F":
+            order = tuple(
+                array_metadata.ndim - x - 1 for x in range(array_metadata.ndim)
+            )
+
+        elif configuration.order == "C":
+            order = tuple(range(array_metadata.ndim))
+
+        else:
+            assert len(configuration.order) == array_metadata.ndim, (
+                "The `order` tuple needs have as many entries as "
+                + f"there are dimensions in the array. Got: {configuration.order}"
+            )
+            assert len(configuration.order) == len(set(configuration.order)), (
+                "There must not be duplicates in the `order` tuple. "
+                + f"Got: {configuration.order}"
+            )
+            assert all(0 <= x < array_metadata.ndim for x in configuration.order), (
+                "All entries in the `order` tuple must be between 0 and "
+                + f"the number of dimensions in the array. Got: {configuration.order}"
+            )
+            order = tuple(configuration.order)
+
         return cls(
             array_metadata=array_metadata,
-            configuration=codec_metadata.configuration,
+            order=order,
+        )
+
+    def resolve_metadata(self) -> CoreArrayMetadata:
+        from zarrita.metadata import CoreArrayMetadata
+
+        return CoreArrayMetadata(
+            shape=tuple(
+                self.array_metadata.shape[self.order[i]]
+                for i in range(self.array_metadata.ndim)
+            ),
+            chunk_shape=tuple(
+                self.array_metadata.chunk_shape[self.order[i]]
+                for i in range(self.array_metadata.ndim)
+            ),
+            data_type=self.array_metadata.data_type,
+            fill_value=self.array_metadata.fill_value,
+            runtime_configuration=self.array_metadata.runtime_configuration,
         )
 
     async def decode(
         self,
         chunk_array: np.ndarray,
     ) -> np.ndarray:
-        new_order = self.configuration.order
-        chunk_array = chunk_array.view(np.dtype(self.array_metadata.data_type.value))
-        if isinstance(new_order, tuple):
-            chunk_array = chunk_array.transpose(new_order)
-        elif new_order == "F":
-            chunk_array = chunk_array.ravel().reshape(
-                self.array_metadata.chunk_shape, order="F"
-            )
+        inverse_order = [0 for _ in range(self.array_metadata.ndim)]
+        for x, i in enumerate(self.order):
+            inverse_order[x] = i
+        chunk_array = chunk_array.transpose(inverse_order)
         return chunk_array
 
     async def encode(
         self,
         chunk_array: np.ndarray,
     ) -> Optional[np.ndarray]:
-        new_order = self.configuration.order
-        if isinstance(new_order, tuple):
-            chunk_array = chunk_array.transpose(new_order)
-        elif new_order == "F":
-            chunk_array = chunk_array.T
-        return chunk_array.reshape(-1, order="C")
+        chunk_array = chunk_array.transpose(self.order)
+        return chunk_array
 
     def compute_encoded_size(self, input_byte_length: int) -> int:
         return input_byte_length
