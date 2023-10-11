@@ -490,6 +490,7 @@ class ShardingCodec(ArrayBytesCodec):
         )
 
         if shard_builder.index.is_all_empty():
+            # why is this delete necessary?
             await store_path.delete_async()
         else:
             await store_path.set_async(

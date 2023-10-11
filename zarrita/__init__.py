@@ -10,6 +10,7 @@ from zarrita.group_v2 import GroupV2  # noqa: F401
 from zarrita.metadata import RuntimeConfiguration, runtime_configuration  # noqa: F401
 from zarrita.store import (  # noqa: F401
     LocalStore,
+    MemoryStore,
     RemoteStore,
     Store,
     StoreLike,

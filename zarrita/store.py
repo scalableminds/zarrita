@@ -207,6 +207,51 @@ class LocalStore(Store):
         return f"LocalStore({repr(str(self))})"
 
 
+class MemoryStore(Store):
+    supports_partial_writes = True
+
+    def __init__(self, store_dict: Optional[Dict] = None):
+        self.store_dict = store_dict or {}  # type: Dict[str, bytes]
+
+    async def get_async(
+        self, key: str, byte_range: Optional[Tuple[int, Optional[int]]] = None
+    ) -> Optional[BytesLike]:
+        assert isinstance(key, str)
+        try:
+            value = self.store_dict[key]
+            if byte_range is not None:
+                value = value[byte_range[0]:byte_range[1]]
+            return value
+        except KeyError:
+            return None
+
+    async def set_async(
+        self, key: str, value: BytesLike, byte_range: Optional[Tuple[int, int]] = None
+    ) -> None:
+        assert isinstance(key, str)
+
+        if byte_range is not None:
+            self.store_dict[key][byte_range[0]:byte_range[1]] = value
+        else:
+            self.store_dict[key] = value
+
+    async def delete_async(self, key: str) -> None:
+        try:
+            del self.store_dict[key]
+        except KeyError:
+            # is this the right behavior?
+            pass
+
+    async def exists_async(self, key: str) -> bool:
+        return key in self.store_dict
+
+    def __str__(self) -> str:
+        return f"memory://{id(self.store_dict)}"
+
+    def __repr__(self) -> str:
+        return f"MemoryStore({repr(str(self))})"
+    
+
 class RemoteStore(Store):
     root: UPath
 
