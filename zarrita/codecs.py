@@ -24,6 +24,7 @@ from zarrita.metadata import (
     GzipCodecConfigurationMetadata,
     GzipCodecMetadata,
     ShardingCodecConfigurationMetadata,
+    ShardingCodecIndexLocation,
     ShardingCodecMetadata,
     TransposeCodecConfigurationMetadata,
     TransposeCodecMetadata,
@@ -595,11 +596,12 @@ def sharding_codec(
     chunk_shape: Tuple[int, ...],
     codecs: Optional[List[CodecMetadata]] = None,
     index_codecs: Optional[List[CodecMetadata]] = None,
+    index_location: ShardingCodecIndexLocation = ShardingCodecIndexLocation.end,
 ) -> ShardingCodecMetadata:
     codecs = codecs or [bytes_codec()]
     index_codecs = index_codecs or [bytes_codec(), crc32c_codec()]
     return ShardingCodecMetadata(
         configuration=ShardingCodecConfigurationMetadata(
-            chunk_shape, codecs, index_codecs
+            chunk_shape, codecs, index_codecs, index_location
         )
     )
