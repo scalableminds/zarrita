@@ -197,7 +197,11 @@ def test_nested_sharding(
         codecs=[
             codecs.sharding_codec(
                 (32, 32, 32),
-                [codecs.sharding_codec((16, 16, 16), index_location=inner_index_location)],
+                [
+                    codecs.sharding_codec(
+                        (16, 16, 16), index_location=inner_index_location
+                    )
+                ],
                 index_location=outer_index_location,
             )
         ],
