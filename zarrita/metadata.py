@@ -219,11 +219,17 @@ class Crc32cCodecMetadata:
     name: Literal["crc32c"] = "crc32c"
 
 
+class ShardingCodecIndexLocation(Enum):
+    start = "start"
+    end = "end"
+
+
 @frozen
 class ShardingCodecConfigurationMetadata:
     chunk_shape: ChunkCoords
     codecs: List["CodecMetadata"]
     index_codecs: List["CodecMetadata"]
+    index_location: ShardingCodecIndexLocation = ShardingCodecIndexLocation.end
 
 
 @frozen
@@ -295,6 +301,8 @@ class ArrayMetadata:
     def to_bytes(self) -> bytes:
         def _json_convert(o):
             if isinstance(o, DataType):
+                return o.name
+            if isinstance(o, ShardingCodecIndexLocation):
                 return o.name
             raise TypeError
 
