@@ -1,7 +1,7 @@
 from __future__ import annotations
-from abc import ABC, abstractmethod
 
 import json
+from abc import ABC, abstractmethod
 from typing import Any, Dict, Iterable, Literal, Optional, Tuple, Union
 
 import numpy as np
