@@ -19,7 +19,7 @@ from zarrita import (
     runtime_configuration,
 )
 from zarrita.indexing import morton_order_iter
-from zarrita.metadata import CodecMetadata
+from zarrita.metadata import CodecMetadata, ShardingCodecIndexLocation
 
 
 @fixture
@@ -43,7 +43,12 @@ def store(request) -> Iterator[Store]:
         yield MemoryStore()
 
 
-def test_sharding(store: Store, l4_sample_data: np.ndarray):
+@pytest.mark.parametrize(
+    "index_location", [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end]
+)
+def test_sharding(
+    store: Store, l4_sample_data: np.ndarray, index_location: ShardingCodecIndexLocation
+):
     data = l4_sample_data
 
     a = Array.create(
@@ -60,6 +65,7 @@ def test_sharding(store: Store, l4_sample_data: np.ndarray):
                     codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
+                index_location=index_location,
             )
         ],
     )
@@ -71,7 +77,12 @@ def test_sharding(store: Store, l4_sample_data: np.ndarray):
     assert np.array_equal(data, read_data)
 
 
-def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
+@pytest.mark.parametrize(
+    "index_location", [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end]
+)
+def test_sharding_partial(
+    store: Store, l4_sample_data: np.ndarray, index_location: ShardingCodecIndexLocation
+):
     data = l4_sample_data
 
     a = Array.create(
@@ -88,6 +99,7 @@ def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
                     codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
+                index_location=index_location,
             )
         ],
     )
@@ -102,7 +114,12 @@ def test_sharding_partial(store: Store, l4_sample_data: np.ndarray):
     assert np.array_equal(data, read_data)
 
 
-def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
+@pytest.mark.parametrize(
+    "index_location", [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end]
+)
+def test_sharding_partial_read(
+    store: Store, l4_sample_data: np.ndarray, index_location: ShardingCodecIndexLocation
+):
     data = l4_sample_data
 
     a = Array.create(
@@ -119,6 +136,7 @@ def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
                     codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
+                index_location=index_location,
             )
         ],
     )
@@ -127,7 +145,12 @@ def test_sharding_partial_read(store: Store, l4_sample_data: np.ndarray):
     assert np.all(read_data == 1)
 
 
-def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
+@pytest.mark.parametrize(
+    "index_location", [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end]
+)
+def test_sharding_partial_overwrite(
+    store: Store, l4_sample_data: np.ndarray, index_location: ShardingCodecIndexLocation
+):
     data = l4_sample_data[:10, :10, :10]
 
     a = Array.create(
@@ -144,6 +167,7 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
                     codecs.bytes_codec(),
                     codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
                 ],
+                index_location=index_location,
             )
         ],
     )
@@ -159,7 +183,20 @@ def test_sharding_partial_overwrite(store: Store, l4_sample_data: np.ndarray):
     assert np.array_equal(data, read_data)
 
 
-def test_nested_sharding(store: Store, l4_sample_data: np.ndarray):
+@pytest.mark.parametrize(
+    "outer_index_location",
+    [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end],
+)
+@pytest.mark.parametrize(
+    "inner_index_location",
+    [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end],
+)
+def test_nested_sharding(
+    store: Store,
+    l4_sample_data: np.ndarray,
+    outer_index_location: ShardingCodecIndexLocation,
+    inner_index_location: ShardingCodecIndexLocation,
+):
     data = l4_sample_data
 
     a = Array.create(
@@ -171,7 +208,12 @@ def test_nested_sharding(store: Store, l4_sample_data: np.ndarray):
         codecs=[
             codecs.sharding_codec(
                 (32, 32, 32),
-                [codecs.sharding_codec((16, 16, 16))],
+                [
+                    codecs.sharding_codec(
+                        (16, 16, 16), index_location=inner_index_location
+                    )
+                ],
+                index_location=outer_index_location,
             )
         ],
     )
