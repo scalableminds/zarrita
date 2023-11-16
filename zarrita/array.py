@@ -1,4 +1,5 @@
 from __future__ import annotations
+from abc import ABC, abstractmethod
 
 import json
 from typing import Any, Dict, Iterable, Literal, Optional, Tuple, Union
@@ -59,7 +60,20 @@ def _json_convert(o):
     raise TypeError
 
 
-class ChunkFetcher:
+class ChunkFetcher(ABC):
+    @abstractmethod
+    async def fetch_chunks(
+        self,
+        array_metadata: ArrayMetadata,
+        runtime_configuration: RuntimeConfiguration,
+        array_store_path: StorePath,
+        indexer: Iterable[Tuple[ChunkCoords, SliceSelection, SliceSelection]],
+        out: np.ndarray,
+    ) -> None:
+        pass
+
+
+class AsyncChunkFetcher(ChunkFetcher):
     async def fetch_chunks(
         self,
         array_metadata: ArrayMetadata,
@@ -358,7 +372,7 @@ class Array:
         )
 
         # reading chunks and decoding them
-        await ChunkFetcher().fetch_chunks(
+        await AsyncChunkFetcher().fetch_chunks(
             self.metadata, self.runtime_configuration, self.store_path, indexer, out
         )
 
