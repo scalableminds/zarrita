@@ -9,7 +9,15 @@ import wkw
 import zarr
 from pytest import fixture
 
-from zarrita import Array, Group, LocalStore, Store, codecs, runtime_configuration
+from zarrita import (
+    Array,
+    Group,
+    LocalStore,
+    MemoryStore,
+    Store,
+    codecs,
+    runtime_configuration,
+)
 from zarrita.indexing import morton_order_iter
 from zarrita.metadata import CodecMetadata, ShardingCodecIndexLocation
 
@@ -21,15 +29,18 @@ def l4_sample_data() -> np.ndarray:
     )[0]
 
 
-@fixture
-def store() -> Iterator[Store]:
-    path = Path("testdata")
-    rmtree(path, ignore_errors=True)
-    try:
-        yield LocalStore(path)
-    finally:
-        # rmtree(path, ignore_errors=True)
-        pass
+@fixture(params=["local", "memory"])
+def store(request) -> Iterator[Store]:
+    if request.param == "local":
+        path = Path("testdata")
+        rmtree(path, ignore_errors=True)
+        try:
+            yield LocalStore(path)
+        finally:
+            # rmtree(path, ignore_errors=True)
+            pass
+    elif request.param == "memory":
+        yield MemoryStore()
 
 
 @pytest.mark.parametrize(
@@ -279,12 +290,9 @@ async def test_order(
             order=store_order,
             compressor=None,
             fill_value=1,
-            store="testdata/order_zarr",
         )
         z[:, :] = data
-        assert await store.get_async("order/0.0") == await store.get_async(
-            "order_zarr/0.0"
-        )
+        assert await store.get_async("order/0.0") == z._store["0.0"]
 
 
 @pytest.mark.parametrize("input_order", ["F", "C"])
@@ -394,7 +402,6 @@ async def test_transpose(
             order="F",
             compressor=None,
             fill_value=1,
-            store="testdata/transpose_zarr",
         )
         z[:, :] = data
         assert await store.get_async("transpose/0.0") == await store.get_async(
@@ -675,7 +682,6 @@ async def test_zarr_compat(store: Store):
         dtype=data.dtype,
         compressor=None,
         fill_value=1,
-        store="testdata/zarr_compat2",
     )
 
     await a.async_[:16, :18].set(data)
@@ -683,18 +689,10 @@ async def test_zarr_compat(store: Store):
     assert np.array_equal(data, await a.async_[:16, :18].get())
     assert np.array_equal(data, z2[:16, :18])
 
-    assert await store.get_async("zarr_compat2/0.0") == await store.get_async(
-        "zarr_compat3/0.0"
-    )
-    assert await store.get_async("zarr_compat2/0.1") == await store.get_async(
-        "zarr_compat3/0.1"
-    )
-    assert await store.get_async("zarr_compat2/1.0") == await store.get_async(
-        "zarr_compat3/1.0"
-    )
-    assert await store.get_async("zarr_compat2/1.1") == await store.get_async(
-        "zarr_compat3/1.1"
-    )
+    assert z2._store["0.0"] == await store.get_async("zarr_compat3/0.0")
+    assert z2._store["0.1"] == await store.get_async("zarr_compat3/0.1")
+    assert z2._store["1.0"] == await store.get_async("zarr_compat3/1.0")
+    assert z2._store["1.1"] == await store.get_async("zarr_compat3/1.1")
 
 
 @pytest.mark.asyncio
@@ -718,7 +716,6 @@ async def test_zarr_compat_F(store: Store):
         compressor=None,
         order="F",
         fill_value=1,
-        store="testdata/zarr_compatF2",
     )
 
     await a.async_[:16, :18].set(data)
@@ -726,18 +723,10 @@ async def test_zarr_compat_F(store: Store):
     assert np.array_equal(data, await a.async_[:16, :18].get())
     assert np.array_equal(data, z2[:16, :18])
 
-    assert await store.get_async("zarr_compatF2/0.0") == await store.get_async(
-        "zarr_compatF3/0.0"
-    )
-    assert await store.get_async("zarr_compatF2/0.1") == await store.get_async(
-        "zarr_compatF3/0.1"
-    )
-    assert await store.get_async("zarr_compatF2/1.0") == await store.get_async(
-        "zarr_compatF3/1.0"
-    )
-    assert await store.get_async("zarr_compatF2/1.1") == await store.get_async(
-        "zarr_compatF3/1.1"
-    )
+    assert z2._store["0.0"] == await store.get_async("zarr_compatF3/0.0")
+    assert z2._store["0.1"] == await store.get_async("zarr_compatF3/0.1")
+    assert z2._store["1.0"] == await store.get_async("zarr_compatF3/1.0")
+    assert z2._store["1.1"] == await store.get_async("zarr_compatF3/1.1")
 
 
 @pytest.mark.asyncio
@@ -835,12 +824,9 @@ async def test_endian(store: Store, endian: Literal["big", "little"]):
         dtype=">u2" if endian == "big" else "<u2",
         compressor=None,
         fill_value=1,
-        store="testdata/endian_zarr",
     )
     z[:, :] = data
-    assert await store.get_async("endian/0.0") == await store.get_async(
-        "endian_zarr/0.0"
-    )
+    assert await store.get_async("endian/0.0") == z._store["0.0"]
 
 
 @pytest.mark.parametrize("dtype_input_endian", [">u2", "<u2"])
@@ -874,12 +860,9 @@ async def test_endian_write(
         dtype=">u2" if dtype_store_endian == "big" else "<u2",
         compressor=None,
         fill_value=1,
-        store="testdata/endian_zarr",
     )
     z[:, :] = data
-    assert await store.get_async("endian/0.0") == await store.get_async(
-        "endian_zarr/0.0"
-    )
+    assert await store.get_async("endian/0.0") == z._store["0.0"]
 
 
 def test_invalid_metadata(store: Store):
