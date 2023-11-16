@@ -9,7 +9,15 @@ import wkw
 import zarr
 from pytest import fixture
 
-from zarrita import Array, Group, LocalStore, MemoryStore, Store, codecs, runtime_configuration
+from zarrita import (
+    Array,
+    Group,
+    LocalStore,
+    MemoryStore,
+    Store,
+    codecs,
+    runtime_configuration,
+)
 from zarrita.indexing import morton_order_iter
 from zarrita.metadata import CodecMetadata
 

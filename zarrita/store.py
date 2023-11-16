@@ -3,7 +3,16 @@ from __future__ import annotations
 import asyncio
 import io
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Dict,
+    List,
+    MutableMapping,
+    Optional,
+    Tuple,
+    Union,
+)
 
 import fsspec
 from fsspec.asyn import AsyncFileSystem
@@ -209,9 +218,10 @@ class LocalStore(Store):
 
 class MemoryStore(Store):
     supports_partial_writes = True
+    store_dict: MutableMapping[str, bytes]
 
-    def __init__(self, store_dict: Optional[Dict] = None):
-        self.store_dict = store_dict or {}  # type: Dict[str, bytes]
+    def __init__(self, store_dict: Optional[MutableMapping[str, bytes]] = None):
+        self.store_dict = store_dict or {}
 
     async def get_async(
         self, key: str, byte_range: Optional[Tuple[int, Optional[int]]] = None
@@ -220,7 +230,7 @@ class MemoryStore(Store):
         try:
             value = self.store_dict[key]
             if byte_range is not None:
-                value = value[byte_range[0]:byte_range[1]]
+                value = value[byte_range[0] : byte_range[1]]
             return value
         except KeyError:
             return None
@@ -231,7 +241,9 @@ class MemoryStore(Store):
         assert isinstance(key, str)
 
         if byte_range is not None:
-            self.store_dict[key][byte_range[0]:byte_range[1]] = value
+            buf = bytearray(self.store_dict[key])
+            buf[byte_range[0] : byte_range[1]] = value
+            self.store_dict[key] = buf
         else:
             self.store_dict[key] = value
 
@@ -239,7 +251,6 @@ class MemoryStore(Store):
         try:
             del self.store_dict[key]
         except KeyError:
-            # is this the right behavior?
             pass
 
     async def exists_async(self, key: str) -> bool:
@@ -250,7 +261,7 @@ class MemoryStore(Store):
 
     def __repr__(self) -> str:
         return f"MemoryStore({repr(str(self))})"
-    
+
 
 class RemoteStore(Store):
     root: UPath
