@@ -229,9 +229,7 @@ class ShardingCodecConfigurationMetadata:
     chunk_shape: ChunkCoords
     codecs: List["CodecMetadata"]
     index_codecs: List["CodecMetadata"]
-    index_location: Optional[
-        ShardingCodecIndexLocation
-    ] = ShardingCodecIndexLocation.end
+    index_location: ShardingCodecIndexLocation = ShardingCodecIndexLocation.end
 
 
 @frozen
