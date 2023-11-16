@@ -59,6 +59,65 @@ def _json_convert(o):
     raise TypeError
 
 
+class ChunkFetcher:
+    async def fetch_chunks(
+        self,
+        array_metadata: ArrayMetadata,
+        runtime_configuration: RuntimeConfiguration,
+        array_store_path: StorePath,
+        indexer: Iterable[Tuple[ChunkCoords, SliceSelection, SliceSelection]],
+        out: np.ndarray,
+    ) -> None:
+        codec_pipeline = CodecPipeline.from_metadata(
+            array_metadata.codecs,
+            array_metadata.get_core_metadata(runtime_configuration),
+        )
+        await concurrent_map(
+            [
+                (
+                    array_metadata,
+                    codec_pipeline,
+                    array_store_path
+                    / array_metadata.chunk_key_encoding.encode_chunk_key(chunk_coords),
+                    chunk_selection,
+                    out_selection,
+                    out,
+                )
+                for chunk_coords, chunk_selection, out_selection in indexer
+            ],
+            self._fetch_chunk,
+            runtime_configuration.concurrency,
+        )
+
+    async def _fetch_chunk(
+        self,
+        array_metadata: ArrayMetadata,
+        codec_pipeline: CodecPipeline,
+        chunk_store_path: StorePath,
+        chunk_selection: SliceSelection,
+        out_selection: SliceSelection,
+        out: np.ndarray,
+    ) -> None:
+        if len(codec_pipeline.codecs) == 1 and isinstance(
+            codec_pipeline.codecs[0], ShardingCodec
+        ):
+            chunk_array = await codec_pipeline.codecs[0].decode_partial(
+                chunk_store_path, chunk_selection
+            )
+            if chunk_array is not None:
+                out[out_selection] = chunk_array
+            else:
+                out[out_selection] = array_metadata.fill_value
+        else:
+            chunk_bytes = await chunk_store_path.get_async()
+            if chunk_bytes is not None:
+                chunk_array = await codec_pipeline.decode(chunk_bytes)
+                tmp = chunk_array[chunk_selection]
+                out[out_selection] = tmp
+            else:
+                out[out_selection] = array_metadata.fill_value
+
+
 @frozen
 class Array:
     metadata: ArrayMetadata
@@ -299,49 +358,14 @@ class Array:
         )
 
         # reading chunks and decoding them
-        await concurrent_map(
-            [
-                (chunk_coords, chunk_selection, out_selection, out)
-                for chunk_coords, chunk_selection, out_selection in indexer
-            ],
-            self._read_chunk,
-            self.runtime_configuration.concurrency,
+        await ChunkFetcher().fetch_chunks(
+            self.metadata, self.runtime_configuration, self.store_path, indexer, out
         )
 
         if out.shape:
             return out
         else:
             return out[()]
-
-    async def _read_chunk(
-        self,
-        chunk_coords: ChunkCoords,
-        chunk_selection: SliceSelection,
-        out_selection: SliceSelection,
-        out: np.ndarray,
-    ):
-        chunk_key_encoding = self.metadata.chunk_key_encoding
-        chunk_key = chunk_key_encoding.encode_chunk_key(chunk_coords)
-        store_path = self.store_path / chunk_key
-
-        if len(self.codec_pipeline.codecs) == 1 and isinstance(
-            self.codec_pipeline.codecs[0], ShardingCodec
-        ):
-            chunk_array = await self.codec_pipeline.codecs[0].decode_partial(
-                store_path, chunk_selection
-            )
-            if chunk_array is not None:
-                out[out_selection] = chunk_array
-            else:
-                out[out_selection] = self.metadata.fill_value
-        else:
-            chunk_bytes = await store_path.get_async()
-            if chunk_bytes is not None:
-                chunk_array = await self.codec_pipeline.decode(chunk_bytes)
-                tmp = chunk_array[chunk_selection]
-                out[out_selection] = tmp
-            else:
-                out[out_selection] = self.metadata.fill_value
 
     def __setitem__(self, selection: Selection, value: np.ndarray) -> None:
         sync(self._set_async(selection, value), self.runtime_configuration.asyncio_loop)
