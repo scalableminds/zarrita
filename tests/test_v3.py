@@ -225,6 +225,53 @@ def test_nested_sharding(
     assert np.array_equal(data, read_data)
 
 
+@pytest.mark.parametrize(
+    "index_location", [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end]
+)
+@pytest.mark.asyncio
+async def test_sharding_index_location(
+    store: Store, l4_sample_data: np.ndarray, index_location: ShardingCodecIndexLocation
+):
+    data = l4_sample_data
+
+    a = await Array.create_async(
+        store / "sharding_index_location",
+        shape=data.shape,
+        chunk_shape=(64, 64, 64),
+        chunk_key_encoding=("v2", "."),
+        dtype=data.dtype,
+        fill_value=0,
+        codecs=[
+            codecs.sharding_codec(
+                (64, 64, 64),
+                [
+                    codecs.bytes_codec(),
+                ],
+                index_location=index_location,
+            )
+        ],
+    )
+
+    await a.async_[:, :].set(data)
+
+    read_data = await a.async_[:, :].get()
+    assert data.shape == read_data.shape
+    assert np.array_equal(data, read_data)
+
+    if index_location == ShardingCodecIndexLocation.start:
+        buf = await store.get_async("sharding_index_location/0.0.0", (0, 16))
+        assert buf is not None
+        index = np.frombuffer(buf, dtype="<u8")
+        assert index[0] == 16 + 4
+        assert index[1] == 64**3
+    else:
+        buf = await store.get_async("sharding_index_location/0.0.0", (-(16 + 4), -4))
+        assert buf is not None
+        index = np.frombuffer(buf, dtype="<u8")
+        assert index[0] == 0
+        assert index[1] == 64**3
+
+
 @pytest.mark.parametrize("input_order", ["F", "C"])
 @pytest.mark.parametrize("store_order", ["F", "C"])
 @pytest.mark.parametrize("runtime_write_order", ["F", "C"])

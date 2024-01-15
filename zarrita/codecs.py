@@ -600,6 +600,8 @@ def sharding_codec(
 ) -> ShardingCodecMetadata:
     codecs = codecs or [bytes_codec()]
     index_codecs = index_codecs or [bytes_codec(), crc32c_codec()]
+    if isinstance(index_location, str):
+        index_location = ShardingCodecIndexLocation(index_location)
     return ShardingCodecMetadata(
         configuration=ShardingCodecConfigurationMetadata(
             chunk_shape, codecs, index_codecs, index_location
