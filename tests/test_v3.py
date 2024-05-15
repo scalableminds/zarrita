@@ -24,6 +24,7 @@ from zarrita.metadata import CodecMetadata, ShardingCodecIndexLocation
 
 @fixture
 def l4_sample_data() -> np.ndarray:
+    # requires data from https://static.webknossos.org/data/l4_sample.zip in directory "tests"
     return wkw.Dataset.open("l4_sample/color/1").read(
         (3072, 3072, 512), (128, 128, 128)
     )[0]
