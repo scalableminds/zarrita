@@ -455,16 +455,17 @@ async def test_transpose(
             "transpose_zarr/0.0"
         )
 
-
+@pytest.mark.parametrize("order", [[1, 2, 0], [1, 2, 3, 0], [3, 2, 4, 0, 1]])
 def test_transpose_non_self_inverse(
-        store: Store
+        store: Store,
+        order
 ):
-    data = np.arange(0, 6 * 7 * 8, dtype="uint16").reshape((6, 7, 8))
-    order = [1, 2, 0]
+    shape = [i+3 for i in range(len(order))]
+    data = np.arange(0, np.prod(shape), dtype="uint16").reshape(shape)
     a = Array.create(
         store / "transpose_non_self_inverse",
         shape=data.shape,
-        chunk_shape=(6, 7, 8),
+        chunk_shape=shape,
         dtype=data.dtype,
         fill_value=0,
         codecs=[codecs.transpose_codec(order), codecs.bytes_codec()],
