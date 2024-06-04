@@ -426,9 +426,7 @@ class TransposeCodec(ArrayArrayCodec):
         self,
         chunk_array: np.ndarray,
     ) -> np.ndarray:
-        inverse_order = [0 for _ in range(self.array_metadata.ndim)]
-        for x, i in enumerate(self.order):
-            inverse_order[x] = i
+        inverse_order = np.argsort(self.order)
         chunk_array = chunk_array.transpose(inverse_order)
         return chunk_array
 

@@ -456,6 +456,24 @@ async def test_transpose(
         )
 
 
+def test_transpose_non_self_inverse(
+        store: Store
+):
+    data = np.arange(0, 6 * 7 * 8, dtype="uint16").reshape((6, 7, 8))
+    order = [1, 2, 0]
+    a = Array.create(
+        store / "transpose_non_self_inverse",
+        shape=data.shape,
+        chunk_shape=(6, 7, 8),
+        dtype=data.dtype,
+        fill_value=0,
+        codecs=[codecs.transpose_codec(order), codecs.bytes_codec()],
+    )
+    a[:, :] = data
+    read_data = a[:, :]
+    assert np.array_equal(data, read_data)
+
+
 def test_transpose_invalid(
     store: Store,
 ):
