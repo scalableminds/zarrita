@@ -465,7 +465,7 @@ def test_transpose_non_self_inverse(
     a = Array.create(
         store / "transpose_non_self_inverse",
         shape=data.shape,
-        chunk_shape=shape,
+        chunk_shape=data.shape,
         dtype=data.dtype,
         fill_value=0,
         codecs=[codecs.transpose_codec(order), codecs.bytes_codec()],
