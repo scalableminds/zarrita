@@ -270,7 +270,7 @@ class RemoteStore(Store):
         from upath import UPath
 
         if isinstance(url, str):
-            self.root = UPath(url, storage_options=storage_options)
+            self.root = UPath(url, protocol=None, **storage_options)
         else:
             assert len(storage_options) == 0, (
                 "If constructed with a UPath object, no additional "
