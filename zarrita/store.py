@@ -82,7 +82,7 @@ class Store:
             if isinstance(pth, UPath) and not isinstance(
                 pth, (PosixUPath, WindowsUPath)
             ):
-                storage_options = pth.storage_options.copy()
+                storage_options = dict(pth.storage_options)
                 storage_options.pop("_url", None)
                 return RemoteStore(str(pth), **storage_options)
         except ImportError:
@@ -270,7 +270,7 @@ class RemoteStore(Store):
         from upath import UPath
 
         if isinstance(url, str):
-            self.root = UPath(url, **storage_options)
+            self.root = UPath(url, storage_options=storage_options)
         else:
             assert len(storage_options) == 0, (
                 "If constructed with a UPath object, no additional "
@@ -284,7 +284,7 @@ class RemoteStore(Store):
         assert fs.__class__.async_impl, "FileSystem needs to support async operations."
 
     def make_fs(self) -> Tuple[AsyncFileSystem, str]:
-        storage_options = self.root.storage_options.copy()
+        storage_options = dict(self.root.storage_options)
         storage_options.pop("_url", None)
         fs, root = fsspec.core.url_to_fs(
             str(self.root), asynchronous=True, **self.root.storage_options
