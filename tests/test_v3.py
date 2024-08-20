@@ -1082,3 +1082,32 @@ def test_update_attributes_group(store: Store):
 
     g = Group.open(store / "update_attributes_group")
     assert g.metadata.attributes["hello"] == "zarrita"
+
+
+@pytest.mark.parametrize(
+    "index_location", [ShardingCodecIndexLocation.start, ShardingCodecIndexLocation.end]
+)
+def test_sharding_with_empty_inner_chunk(store: Store, index_location):
+    data = np.arange(0, 16 * 16, dtype="uint16").reshape((16, 16))
+    fill_value = 1
+    data[:4, :4] = fill_value
+
+    a = Array.create(
+        store / "sharding_with_empty_inner_chunk",
+        shape=(16, 16),
+        chunk_shape=(8, 8),
+        dtype=data.dtype,
+        fill_value=fill_value,
+        codecs=[
+            codecs.sharding_codec(
+                chunk_shape=(4, 4),
+                codecs=[
+                    codecs.bytes_codec(),
+                    codecs.blosc_codec(typesize=data.dtype.itemsize),
+                ],
+                index_location=index_location,
+            )
+        ],
+    )
+    a[:] = data
+    assert np.array_equal(a[:], data)
