@@ -547,7 +547,7 @@ class Crc32cCodec(BytesBytesCodec):
 
 
 def blosc_codec(
-    typesize: int | None = None,
+    typesize: Optional[int] = None,
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd",
     clevel: int = 5,
     shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle",
