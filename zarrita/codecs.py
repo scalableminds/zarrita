@@ -268,12 +268,14 @@ class BloscCodec(BytesBytesCodec):
         cls, codec_metadata: BloscCodecMetadata, array_metadata: CoreArrayMetadata
     ) -> BloscCodec:
         configuration = codec_metadata.configuration
-        if configuration.typesize == 0:
+        if configuration.typesize is None:
             configuration = evolve(
                 configuration, typesize=array_metadata.data_type.byte_count
             )
+
+        # Prepare config_dict for the numcodecs.blosc.Blosc constructor
         config_dict = asdict(codec_metadata.configuration)
-        config_dict.pop("typesize", None)
+        config_dict.pop("typesize")
         map_shuffle_str_to_int = {"noshuffle": 0, "shuffle": 1, "bitshuffle": 2}
         config_dict["shuffle"] = map_shuffle_str_to_int[config_dict["shuffle"]]
         return cls(
@@ -545,7 +547,7 @@ class Crc32cCodec(BytesBytesCodec):
 
 
 def blosc_codec(
-    typesize: int,
+    typesize: Optional[int] = None,
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd",
     clevel: int = 5,
     shuffle: Literal["noshuffle", "shuffle", "bitshuffle"] = "noshuffle",

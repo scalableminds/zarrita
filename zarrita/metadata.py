@@ -149,7 +149,7 @@ BloscShuffle = Literal["noshuffle", "shuffle", "bitshuffle"]
 
 @frozen
 class BloscCodecConfigurationMetadata:
-    typesize: int
+    typesize: Optional[int] = None
     cname: Literal["lz4", "lz4hc", "blosclz", "zstd", "snappy", "zlib"] = "zstd"
     clevel: int = 5
     shuffle: BloscShuffle = "noshuffle"

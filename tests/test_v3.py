@@ -63,7 +63,7 @@ def test_sharding(
                 [
                     codecs.transpose_codec("F"),
                     codecs.bytes_codec(),
-                    codecs.blosc_codec(typesize=data.dtype.itemsize, cname="lz4"),
+                    codecs.blosc_codec(cname="lz4"),
                 ],
                 index_location=index_location,
             )
@@ -516,7 +516,7 @@ def test_open_sharding(store: Store):
                 [
                     codecs.transpose_codec("F"),
                     codecs.bytes_codec(),
-                    codecs.blosc_codec(typesize=4),
+                    codecs.blosc_codec(),
                 ],
             )
         ],
@@ -675,7 +675,7 @@ def test_write_partial_sharded_chunks(store: Store):
                 chunk_shape=(10, 10),
                 codecs=[
                     codecs.bytes_codec(),
-                    codecs.blosc_codec(typesize=data.dtype.itemsize),
+                    codecs.blosc_codec(),
                 ],
             )
         ],
