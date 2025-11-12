@@ -1,3 +1,6 @@
+This repository is not maintained anymore.
+Please use [zarr-python](https://github.com/zarr-developers/zarr-python/) or [tensorstore](https://google.github.io/tensorstore/), which have full support for Zarr v3.
+
 # Zarrita
 
 Zarrita is an experimental implementation of [Zarr v3](https://zarr-specs.readthedocs.io/en/latest/v3/core/v3.0.html) including [sharding](https://zarr.dev/zeps/draft/ZEP0002.html). This is only a technical proof of concept meant for generating sample datasets. Not recommended for production use.
